@@ -140,7 +140,7 @@ if (!defined('APP_INITIALIZED')) {
             $isCrossDomainRequest = !empty($origin) && $origin !== 'https://' . ($_SERVER['HTTP_HOST'] ?? '');
             
             if (is_dev_mode()) {
-                error_log("🔍 Session cross-domain analysis:");
+                error_log("🔍 Session cross-domain analysis :");
                 error_log("- HTTP_ORIGIN: " . $origin);
                 error_log("- HTTP_HOST: " . ($_SERVER['HTTP_HOST'] ?? 'undefined'));
                 error_log("- Is cross-domain: " . ($isCrossDomainRequest ? 'YES' : 'NO'));
