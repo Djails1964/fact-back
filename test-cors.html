@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test CORS Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .result { margin: 10px 0; padding: 10px; border-left: 4px solid #007cba; background: #f0f8ff; }
+        .error { border-left-color: #dc3545; background: #fff5f5; }
+        button { padding: 10px 20px; margin: 5px; background: #007cba; color: white; border: none; cursor: pointer; }
+        button:hover { background: #005a9e; }
+    </style>
+</head>
+<body>
+    <h1>Test de configuration CORS</h1>
+    
+    <div id="config-info">
+        <h2>Configuration détectée :</h2>
+        <div id="config-display"></div>
+    </div>
+    
+    <div>
+        <h2>Tests :</h2>
+        <button onclick="testSimpleGet()">Test GET Simple</button>
+        <button onclick="testOptions()">Test OPTIONS (Preflight)</button>
+        <button onclick="testPost()">Test POST avec JSON</button>
+    </div>
+    
+    <div id="results"></div>
+
+    <script>
+        // Afficher la configuration
+        function displayConfig() {
+            const config = window.APP_CONFIG || {};
+            const configDiv = document.getElementById('config-display');
+            
+            configDiv.innerHTML = `
+                <div class="result">
+                    <strong>Origin actuel:</strong> ${window.location.origin}<br>
+                    <strong>API Endpoint:</strong> ${config.apiEndpoint || 'Non défini'}<br>
+                    <strong>Mode Debug:</strong> ${config.debugMode || 'Non défini'}<br>
+                    <strong>API Token:</strong> ${config.apiToken ? 'Défini' : 'Non défini'}
+                </div>
+            `;
+        }
+
+        function logResult(test, success, data) {
+            const resultsDiv = document.getElementById('results');
+            const resultClass = success ? 'result' : 'result error';
+            
+            resultsDiv.innerHTML += `
+                <div class="${resultClass}">
+                    <strong>${test}:</strong> ${success ? '✅ Succès' : '❌ Échec'}<br>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                </div>
+            `;
+        }
+
+        async function testSimpleGet() {
+            const apiEndpoint = window.APP_CONFIG?.apiEndpoint || 'https://dev-facturation-api/api/';
+            const url = `${apiEndpoint}facture-api.php`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                logResult('GET Simple', response.ok, {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                logResult('GET Simple', false, { error: error.message });
+            }
+        }
+
+        async function testOptions() {
+            const apiEndpoint = window.APP_CONFIG?.apiEndpoint || 'https://dev-facturation-api/api/';
+            const url = `${apiEndpoint}facture-api.php`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Access-Control-Request-Method': 'POST',
+                        'Access-Control-Request-Headers': 'Content-Type'
+                    }
+                });
+                
+                logResult('OPTIONS Preflight', response.ok, {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+            } catch (error) {
+                logResult('OPTIONS Preflight', false, { error: error.message });
+            }
+        }
+
+        async function testPost() {
+            const apiEndpoint = window.APP_CONFIG?.apiEndpoint || 'https://dev-facturation-api/api/';
+            const url = `${apiEndpoint}facture-api.php`;
+            
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ test: true })
+                });
+                
+                const data = await response.json();
+                logResult('POST avec JSON', response.ok, {
+                    status: response.status,
+                    headers: Object.fromEntries(response.headers.entries()),
+                    data: data
+                });
+            } catch (error) {
+                logResult('POST avec JSON', false, { error: error.message });
+            }
+        }
+
+        // Simuler la configuration si on n'est pas dans l'app
+        if (!window.APP_CONFIG) {
+            window.APP_CONFIG = {
+                apiEndpoint: 'https://dev-facturation-api/api/',
+                debugMode: true,
+                apiToken: 'test-token'
+            };
+        }
+
+        // Afficher la config au chargement
+        displayConfig();
+    </script>
+</body>
+</html>

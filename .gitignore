@@ -1,0 +1,13 @@
+# Dossier vendor de Composer
+/vendor/
+
+# Fichiers d'environnement
+.env
+.env.backup
+
+# Fichiers de configuration locaux
+*.local.php
+
+# Dossiers et fichiers générés
+/storage/logs/*
+/node_modules/

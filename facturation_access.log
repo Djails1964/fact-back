@@ -1,0 +1,62 @@
+=== DIAGNOSTIC FACTURATION.PHP ===
+Date: 2025-04-30 09:35:26
+IP: ::1
+User Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 OPR/118.0.0.0
+Referer: http://localhost/fact-back/index.php
+SESSION: Array
+(
+    [user_id] => 2
+    [username] => test_admin
+    [role] => admin
+    [nom_complet] => Admin Test
+    [derniere_activite] => 1746005726
+)
+
+COOKIES: Array
+(
+    [SLG_G_WPT_TO] => fr
+    [SLG_GWPT_Show_Hide_tmp] => undefined
+    [SLG_wptGlobTipTmp] => undefined
+    [PHPSESSID] => 6j0j35ml21naat2ojt9e9odf44
+)
+
+GET: Array
+(
+)
+
+POST: Array
+(
+)
+
+==============================
+=== DIAGNOSTIC FACTURATION.PHP ===
+Date: 2025-04-30 12:37:45
+IP: ::1
+User Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 OPR/118.0.0.0
+Referer: http://localhost/fact-back/index.php?logout=1&t=1746016572439
+SESSION: Array
+(
+    [user_id] => 2
+    [username] => test_admin
+    [role] => admin
+    [nom_complet] => Admin Test
+    [derniere_activite] => 1746016665
+)
+
+COOKIES: Array
+(
+    [SLG_G_WPT_TO] => fr
+    [SLG_GWPT_Show_Hide_tmp] => undefined
+    [SLG_wptGlobTipTmp] => undefined
+    [PHPSESSID] => 8bcl98thtsm2ajltv04bvbs9pd
+)
+
+GET: Array
+(
+)
+
+POST: Array
+(
+)
+
+==============================

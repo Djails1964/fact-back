@@ -1,0 +1,35 @@
+<?php
+/**
+ * cors.php - Configuration CORS pour l'API
+ * À inclure dans TOUS les fichiers API PHP
+ */
+
+// Configuration CORS pour développement React
+function setupCORS() {
+    $allowedOrigins = [
+        'http://localhost:3000',    // React dev server
+        'http://127.0.0.1:3000',   // Alternative localhost
+        'http://localhost:3007',   // Si vous utilisez un port custom
+    ];
+    
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    
+    if (in_array($origin, $allowedOrigins)) {
+        header("Access-Control-Allow-Origin: $origin");
+    }
+    
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+    header('Access-Control-Allow-Credentials: true');
+    header('Access-Control-Max-Age: 86400'); // Cache preflight pour 24h
+    
+    // Répondre aux requêtes OPTIONS (preflight)
+    if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+        http_response_code(200);
+        exit();
+    }
+}
+
+// Appeler automatiquement la configuration CORS
+setupCORS();
+?>
