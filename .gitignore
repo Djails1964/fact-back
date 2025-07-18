@@ -11,3 +11,4 @@
 # Dossiers et fichiers générés
 /storage/logs/*
 /node_modules/
+logs/php-errors.log
