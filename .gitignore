@@ -12,3 +12,4 @@
 /storage/logs/*
 /node_modules/
 logs/php-errors.log
+*.log
