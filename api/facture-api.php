@@ -427,11 +427,6 @@ try {
                 throw new Exception('Droits administrateur ou gestionnaire requis pour supprimer des factures', 403);
             }
             
-            // Supprimer une facture
-            if (!isset($_GET['id'])) {
-                throw new Exception('ID facture manquant');
-            }
-
             // Supprimer un paiement
             if (isset($_GET['supprimerPaiement']) && isset($_GET['id'])) {
                 if (is_dev_mode()) {
@@ -450,6 +445,12 @@ try {
                 break;
             }
             
+            // Supprimer une facture
+            if (!isset($_GET['id'])) {
+                throw new Exception('ID facture manquant');
+            }
+
+
             if (is_dev_mode()) {
                 error_log("facture-api - DELETE facture ID: " . $_GET['id'] . " (user: $userId)");
             }
