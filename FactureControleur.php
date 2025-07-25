@@ -468,9 +468,9 @@ class FactureControleur {
      * - 'Annulée' : Facture annulée
      * 
      * Pour les statistiques :
-     * - Montant total facturé = Somme des factures 'Envoyée' + 'Payée'
-     * - Montant payé = Somme des factures 'Payée'
-     * - Factures impayées = Nombre de factures 'Envoyée' (pas encore payées)
+     * - Montant total facturé = Somme des factures 'Envoyée' + 'Payée' + 'Partiellement payée'
+     * - Montant payé = Somme des factures 'Payée' + 'Partiellement payée'
+     * - Factures impayées = Nombre de factures 'Envoyée' (pas encore payées) + 'Partiellement payée'
      * - Montant restant = Montant total facturé - Montant payé
      */
     private static function getBusinessLogicDocumentation() {
@@ -530,9 +530,9 @@ class FactureControleur {
         $query = "
             SELECT 
                 MONTH(date_facture) as mois,
-                SUM(CASE WHEN etat = 'Envoyée' OR etat = 'Payée' THEN montant_total ELSE 0 END) as montant_facture,
+                SUM(CASE WHEN etat = 'Envoyée' OR etat = 'Payée' OR etat = 'Partiellement payée' THEN montant_total ELSE 0 END) as montant_facture,
                 SUM(CASE WHEN etat = 'Payée' THEN montant_total ELSE 0 END) as montant_paye,
-                COUNT(CASE WHEN etat = 'Envoyée' OR etat = 'Payée' THEN 1 END) as nombre_factures
+                COUNT(CASE WHEN etat = 'Envoyée' OR etat = 'Payée' OR etat = 'Partiellement payée' THEN 1 END) as nombre_factures
             FROM facture" . $whereClause . "
             GROUP BY MONTH(date_facture)
             ORDER BY MONTH(date_facture)
@@ -650,8 +650,8 @@ class FactureControleur {
             $stmt1->execute($params);
             $stats['totalFactures'] = $stmt1->fetch(PDO::FETCH_ASSOC)['total'];
             
-            // Montant total facturé (seulement les factures Envoyée et Payée)
-            $sql2 = "SELECT SUM(montant_total) as total FROM facture WHERE (etat = 'Envoyée' OR etat = 'Payée')";
+            // Montant total facturé (seulement les factures Envoyée et Payée ou partiellement payée)
+            $sql2 = "SELECT SUM(montant_total) as total FROM facture WHERE (etat = 'Envoyée' OR etat = 'Payée' OR etat = 'Partiellement payée')";
             if ($annee !== null) {
                 $sql2 .= " AND YEAR(date_facture) = ?";
             }
@@ -669,7 +669,7 @@ class FactureControleur {
             $stats['montantPaye'] = $stmt3->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
             
             // Nombre de factures impayées (seulement celles qui sont Envoyée mais pas encore Payée)
-            $sql4 = "SELECT COUNT(*) as total FROM facture WHERE etat = 'Envoyée'";
+            $sql4 = "SELECT COUNT(*) as total FROM facture WHERE etat in ('Envoyée', 'Partiellement payée')";
             if ($annee !== null) {
                 $sql4 .= " AND YEAR(date_facture) = ?";
             }
@@ -696,9 +696,9 @@ class FactureControleur {
         // Récupérer la date limite de paiement (date actuelle - délai de paiement)
         $dateLimite = date('Y-m-d', strtotime('-' . $delaiPaiement . ' days'));
         
-        // Trouver toutes les factures éditées, non payées, dont la date d'édition est antérieure à la date limite
+        // Trouver toutes les factures envoyées ou partiellement payées, non payées, dont la date d'édition est antérieure à la date limite
         $sql = "SELECT id_facture FROM facture 
-                WHERE etat = 'Éditée' 
+                WHERE etat in ('Envoyée', 'Partiellement payée') 
                 AND date_paiement IS NULL 
                 AND date_facture <= ? 
                 AND date_annulation IS NULL";
