@@ -484,8 +484,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_used'])) {
                         showStatus('success', `✅ ${result.message}`);
                         
                         if (result.detectedClient) {
-                            showStatus('info', `🎯 Optimisé pour ${result.detectedClient}`, 3000);
+                            showStatus('info', `🎯 Optimisé pour ${result.detectedClient}`, 2000);
                         }
+                        
+                        // ✅ NOUVEAU: Programmer la fermeture automatique
+                        closePopupAfterSuccess(3000); // Fermer après 3 secondes
                         
                         // Marquer comme utilisé côté serveur
                         await fetch(window.location.href, {
@@ -573,6 +576,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_used'])) {
                 }, 500);
             }
         });
+
+        // ✅ FONCTION D'AUTO-FERMETURE DE LA POPUP
+        function closePopupAfterSuccess(delay = 2000) {
+            console.log('🚀 Programmation de la fermeture automatique de la popup dans', delay, 'ms');
+            
+            setTimeout(() => {
+                try {
+                    console.log('✅ Fermeture automatique de la popup');
+                    
+                    // Informer la fenêtre parent que la tâche est terminée
+                    if (window.opener && !window.opener.closed) {
+                        window.opener.postMessage({
+                            type: 'emailTaskCompleted',
+                            success: true,
+                            timestamp: Date.now()
+                        }, '*');
+                    }
+                    
+                    // Fermer la popup
+                    window.close();
+                    
+                } catch (error) {
+                    console.error('❌ Erreur lors de la fermeture:', error);
+                    // En cas d'erreur, afficher un message à l'utilisateur
+                    showStatus('info', '✅ Tâche terminée ! Vous pouvez fermer cette fenêtre.', 0);
+                }
+            }, delay);
+        }
         
         // ✅ DEBUG EN MODE DÉVELOPPEMENT AVEC PRÉFÉRENCES
         <?php if (is_dev_mode()): ?>

@@ -5,6 +5,7 @@ require_once 'database.php';
 require_once 'FactureControleur.php';
 require_once realpath(__DIR__ . '/controllers/ParametreControleur.php');
 require_once realpath(__DIR__ . '/services/ServiceParametre.php');
+require_once realpath(__DIR__ . '/controllers/PaiementControleur.php');
 require_once 'PDFGeneratorFactory.php';
 require_once 'ServiceTarif.php';
 require_once 'EmailService.php';
@@ -728,13 +729,140 @@ class ServiceFacture {
     }
 
     /**
-     * Enregistre le paiement d'une facture
+     * Enregistre un paiement avec le nouveau système
      * @param int $id ID de la facture
      * @param array $data Données du paiement
      * @return array Résultat de l'opération
      */
     public function enregistrerPaiement($id, $data) {
-        return FactureControleur::enregistrerPaiement($this->conn, $id, $data);
+        try {
+            // Démarrer une transaction
+            $this->conn->beginTransaction();
+            
+            // Utiliser le nouveau contrôleur
+            $resultat = PaiementControleur::enregistrerPaiement($this->conn, $id, $data);
+            
+            if (!$resultat['success']) {
+                throw new Exception($resultat['message']);
+            }
+            
+            // Valider la transaction
+            $this->conn->commit();
+            
+            return $resultat;
+            
+        } catch (Exception $e) {
+            // Annuler la transaction en cas d'erreur
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+            
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de l\'enregistrement du paiement: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Récupère l'historique des paiements d'une facture
+     * @param int $factureId ID de la facture
+     * @return array Historique des paiements
+     */
+    public function getHistoriquePaiements($factureId) {
+        try {
+            return PaiementControleur::getHistoriquePaiements($this->conn, $factureId);
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération de l\'historique: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Supprime un paiement
+     * @param int $paiementId ID du paiement
+     * @return array Résultat de l'opération
+     */
+    public function supprimerPaiement($paiementId) {
+        try {
+            // Démarrer une transaction
+            $this->conn->beginTransaction();
+            
+            $resultat = PaiementControleur::supprimerPaiement($this->conn, $paiementId);
+            
+            if (!$resultat['success']) {
+                throw new Exception($resultat['message']);
+            }
+            
+            // Valider la transaction
+            $this->conn->commit();
+            
+            return $resultat;
+            
+        } catch (Exception $e) {
+            // Annuler la transaction en cas d'erreur
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+            
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la suppression du paiement: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Récupère les statistiques de paiement d'une facture
+     * @param int $factureId ID de la facture
+     * @return array Statistiques
+     */
+    public function getStatistiquesPaiement($factureId) {
+        try {
+            return PaiementControleur::getStatistiquesPaiement($this->conn, $factureId);
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des statistiques: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Modifie un paiement existant
+     * @param int $paiementId ID du paiement
+     * @param array $data Nouvelles données
+     * @return array Résultat de l'opération
+     */
+    public function modifierPaiement($paiementId, $data) {
+        try {
+            // Démarrer une transaction
+            $this->conn->beginTransaction();
+            
+            $resultat = PaiementControleur::modifierPaiement($this->conn, $paiementId, $data);
+            
+            if (!$resultat['success']) {
+                throw new Exception($resultat['message']);
+            }
+            
+            // Valider la transaction
+            $this->conn->commit();
+            
+            return $resultat;
+            
+        } catch (Exception $e) {
+            // Annuler la transaction en cas d'erreur
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+            
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la modification du paiement: ' . $e->getMessage()
+            ];
+        }
     }
     
     /**

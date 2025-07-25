@@ -160,6 +160,43 @@ try {
                 echo json_encode($resultat);
                 break;
             }
+
+            
+            // Récupérer l'historique des paiements d'une facture
+            if (isset($_GET['historiquePaiements']) && isset($_GET['id'])) {
+                if (is_dev_mode()) {
+                    error_log("facture-api - GET historique paiements pour facture ID: " . $_GET['id'] . " (user: $userId)");
+                }
+                
+                try {
+                    $resultat = $serviceFacture->getHistoriquePaiements($_GET['id']);
+                    echo json_encode($resultat);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => $e->getMessage()
+                    ]);
+                }
+                break;
+            }
+
+            // Récupérer les statistiques de paiement d'une facture
+            if (isset($_GET['statistiquesPaiement']) && isset($_GET['id'])) {
+                if (is_dev_mode()) {
+                    error_log("facture-api - GET statistiques paiement pour facture ID: " . $_GET['id'] . " (user: $userId)");
+                }
+                
+                try {
+                    $resultat = $serviceFacture->getStatistiquesPaiement($_GET['id']);
+                    echo json_encode($resultat);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => $e->getMessage()
+                    ]);
+                }
+                break;
+            }
             
             // Facture spécifique
             if (isset($_GET['id'])) {
@@ -284,14 +321,28 @@ try {
                 break;
             }
 
-            // Enregistrer un paiement
+            // Enregistrer un paiement (nouvelle version avec paiements multiples)
             if (isset($_GET['paiement']) && isset($_GET['id'])) {
                 if (is_dev_mode()) {
                     error_log("facture-api - POST enregistrement paiement pour facture ID: " . $_GET['id'] . " (user: $userId)");
+                    error_log("facture-api - Données paiement: " . json_encode($data));
                 }
                 
-                $resultat = $serviceFacture->enregistrerPaiement($_GET['id'], $data);
-                echo json_encode($resultat);
+                try {
+                    $resultat = $serviceFacture->enregistrerPaiement($_GET['id'], $data);
+                    
+                    // Ajouter des informations supplémentaires au résultat
+                    if ($resultat['success']) {
+                        $resultat['factureId'] = $_GET['id'];
+                    }
+                    
+                    echo json_encode($resultat);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => $e->getMessage()
+                    ]);
+                }
                 break;
             }
 
@@ -324,6 +375,25 @@ try {
             if ($userRole !== 'admin' && $userRole !== 'gestionnaire') {
                 error_log("facture-api - Droits insuffisants pour PUT - User: $userId, Role: $userRole");
                 throw new Exception('Droits administrateur ou gestionnaire requis pour modifier des factures', 403);
+            }
+
+            // Modifier un paiement existant
+            if (isset($_GET['modifierPaiement']) && isset($_GET['id'])) {
+                if (is_dev_mode()) {
+                    error_log("facture-api - PUT modification paiement ID: " . $_GET['id'] . " (user: $userId)");
+                    error_log("facture-api - Données: " . json_encode($data));
+                }
+                
+                try {
+                    $resultat = $serviceFacture->modifierPaiement($_GET['id'], $data);
+                    echo json_encode($resultat);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => $e->getMessage()
+                    ]);
+                }
+                break;
             }
             
             // Mettre à jour une facture existante
@@ -360,6 +430,24 @@ try {
             // Supprimer une facture
             if (!isset($_GET['id'])) {
                 throw new Exception('ID facture manquant');
+            }
+
+            // Supprimer un paiement
+            if (isset($_GET['supprimerPaiement']) && isset($_GET['id'])) {
+                if (is_dev_mode()) {
+                    error_log("facture-api - DELETE paiement ID: " . $_GET['id'] . " (user: $userId)");
+                }
+                
+                try {
+                    $resultat = $serviceFacture->supprimerPaiement($_GET['id']);
+                    echo json_encode($resultat);
+                } catch (Exception $e) {
+                    echo json_encode([
+                        'success' => false,
+                        'message' => $e->getMessage()
+                    ]);
+                }
+                break;
             }
             
             if (is_dev_mode()) {
