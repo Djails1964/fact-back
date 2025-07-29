@@ -1,7 +1,6 @@
 <?php
 // ServiceClient.php
 
-require_once 'database.php';
 require_once realpath(__DIR__ . '/../controllers/ClientControleur.php');
 
 class ServiceClient {

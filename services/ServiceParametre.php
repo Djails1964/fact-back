@@ -1,7 +1,6 @@
 <?php
 // ServiceParametre.php
 
-require_once 'database.php';
 require_once realpath(__DIR__ . '/../controllers/ParametreControleur.php');
 
 class ServiceParametre {

@@ -339,7 +339,7 @@ class FactureControleur {
     // ==================================================================================
     
     /**
-     * Change l'état d'une facture
+     * Change l'état d'une facture (avec protection contre l'état "Retard")
      * 
      * @param PDO $conn La connexion à la base de données
      * @param int $id ID de la facture à modifier
@@ -349,6 +349,12 @@ class FactureControleur {
      */
     public static function changerEtatFacture($conn, $id, $nouvelEtat) {
         try {
+            // ✅ PROTECTION: Empêcher la persistance de l'état "Retard"
+            if ($nouvelEtat === 'Retard') {
+                error_log("⚠️ Tentative de persistance de l'état 'Retard' bloquée pour la facture ID: $id");
+                throw new Exception('L\'état "Retard" ne peut pas être persisté. Il est calculé automatiquement côté client.');
+            }
+            
             // Vérifier si la facture existe
             $checkSql = "SELECT id_facture FROM facture WHERE id_facture = ?";
             $checkStmt = $conn->prepare($checkSql);
@@ -380,7 +386,7 @@ class FactureControleur {
                 case 'Payée':
                 case 'Éditée':
                 case 'En attente':
-                case 'Retard':
+                // ✅ SUPPRIMÉ: case 'Retard' (plus autorisé)
                 default:
                     // Pour les autres états, simplement mettre à jour le champ d'état
                     $sql = "UPDATE facture SET etat = ? WHERE id_facture = ?";
@@ -464,7 +470,7 @@ class FactureControleur {
      * - 'Éditée' : Facture finalisée mais pas encore envoyée au client
      * - 'Envoyée' : Facture envoyée au client, en attente de paiement
      * - 'Payée' : Facture payée par le client
-     * - 'Retard' : Facture en retard de paiement
+     * - 'Retard' : ✅ CALCULÉ CÔTÉ CLIENT - Facture envoyée dépassant le délai de paiement
      * - 'Annulée' : Facture annulée
      * 
      * Pour les statistiques :
@@ -472,6 +478,8 @@ class FactureControleur {
      * - Montant payé = Somme des factures 'Payée' + 'Partiellement payée'
      * - Factures impayées = Nombre de factures 'Envoyée' (pas encore payées) + 'Partiellement payée'
      * - Montant restant = Montant total facturé - Montant payé
+     * 
+     * ✅ NOTE: L'état "Retard" n'est plus persisté en base mais calculé dynamiquement côté client
      */
     private static function getBusinessLogicDocumentation() {
         return [
@@ -580,6 +588,7 @@ class FactureControleur {
 
     /**
      * Récupère la distribution des états des factures
+     * ✅ NOTE: L'état "Retard" n'apparaîtra plus dans les statistiques DB car calculé côté client
      */
     private static function getDistributionEtats($conn, $annee) {
         $whereClause = "";
@@ -685,45 +694,21 @@ class FactureControleur {
     }
 
     /**
-     * Met à jour l'état des factures en retard de paiement
+     * ✅ MÉTHODE OBSOLÈTE: Met à jour l'état des factures en retard de paiement
+     * Cette méthode n'est plus utilisée car l'état "Retard" est calculé dynamiquement côté client
      * 
      * @param PDO $conn La connexion à la base de données
      * @param int $delaiPaiement Délai de paiement en jours (par défaut 30)
-     * @return array Résultat avec le nombre de factures mises à jour
-     * @throws Exception En cas d'erreur
+     * @return array Résultat avec un message d'information
+     * @deprecated L'état "Retard" est maintenant calculé dynamiquement côté client
      */
     public static function mettreAJourFacturesEnRetard($conn, $delaiPaiement = 30) {
-        // Récupérer la date limite de paiement (date actuelle - délai de paiement)
-        $dateLimite = date('Y-m-d', strtotime('-' . $delaiPaiement . ' days'));
-        
-        // Trouver toutes les factures envoyées ou partiellement payées, non payées, dont la date d'édition est antérieure à la date limite
-        $sql = "SELECT id_facture FROM facture 
-                WHERE etat in ('Envoyée', 'Partiellement payée') 
-                AND date_paiement IS NULL 
-                AND date_facture <= ? 
-                AND date_annulation IS NULL";
-        
-        $stmt = $conn->prepare($sql);
-        $stmt->execute([$dateLimite]);
-        $facturesEnRetard = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        $nbFacturesMisesAJour = 0;
-        $facturesModifiees = [];
-        
-        // Mettre à jour chaque facture en retard en utilisant la méthode changerEtatFacture
-        foreach ($facturesEnRetard as $facture) {
-            $resultat = self::changerEtatFacture($conn, $facture['id_facture'], 'Retard');
-            
-            // Vérifier si le changement d'état a réussi
-            if ($resultat['success']) {
-                $nbFacturesMisesAJour++;
-                $facturesModifiees[] = $facture['id_facture'];
-            }
-        }
+        error_log("⚠️ mettreAJourFacturesEnRetard() appelée - Cette méthode est obsolète (état Retard calculé côté client)");
         
         return [
-            'facturesModifiees' => $nbFacturesMisesAJour,
-            'listeFactures' => $facturesModifiees
+            'facturesModifiees' => 0,
+            'listeFactures' => [],
+            'message' => 'Les retards sont calculés automatiquement côté client, aucune mise à jour nécessaire'
         ];
     }
 

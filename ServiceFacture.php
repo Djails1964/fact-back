@@ -1,7 +1,6 @@
 <?php
 // ServiceFacture.php
 
-require_once 'database.php';
 require_once 'FactureControleur.php';
 require_once realpath(__DIR__ . '/controllers/ParametreControleur.php');
 require_once realpath(__DIR__ . '/services/ServiceParametre.php');
@@ -98,7 +97,7 @@ class ServiceFacture {
     }
 
     /**
-     * Change l'état d'une facture
+     * Change l'état d'une facture (avec protection contre l'état "Retard")
      * @param int $id ID de la facture
      * @param string $nouvelEtat Nouvel état de la facture
      * @param string|null $datePaiement Date de paiement (optionnel, pour l'état 'Payée')
@@ -106,11 +105,21 @@ class ServiceFacture {
      */
     public function changerEtatFacture($id, $nouvelEtat) {
         try {
+            // ✅ PROTECTION: Empêcher la persistance de l'état "Retard" au niveau service
+            if ($nouvelEtat === 'Retard') {
+                error_log("⚠️ ServiceFacture - Tentative de persistance de l'état 'Retard' bloquée pour facture ID: $id");
+                return [
+                    'success' => false,
+                    'message' => 'L\'état "Retard" ne peut pas être persisté. Il est calculé automatiquement côté client.',
+                    'code' => 'RETARD_NOT_PERSISTABLE'
+                ];
+            }
+            
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            // Vérifier que l'état est valide
-            $etatsValides = ['Payée', 'Éditée', 'En attente', 'Retard', 'Annulée', 'Envoyée'];
+            // Vérifier que l'état est valide (sans "Retard")
+            $etatsValides = ['Payée', 'Éditée', 'En attente', 'Annulée', 'Envoyée'];
             if (!in_array($nouvelEtat, $etatsValides)) {
                 throw new Exception('État non valide');
             }
@@ -191,7 +200,6 @@ class ServiceFacture {
     public function supprimerFacture($id) {
         return FactureControleur::supprimerFacture($this->conn, $id);
     }
-
 
     /**
      * Génère un PDF pour une facture spécifique
@@ -389,9 +397,6 @@ class ServiceFacture {
                 error_log("Erreur lors de la création du générateur PDF: " . $e->getMessage());
                 echo "Erreur lors de la création du générateur PDF: " . $e->getMessage();
             }            
-            // require_once 'FacturePDFGenerator.php';
-            // $pdfGenerator = new FacturePDFGenerator();
-            // $result = $pdfGenerator->genererPDF($facture, $pdfFilename, $outputDir, $relationsBancaires, $delaiPaiement, $signature, $printRistourne);
 
             error_log("Résultat de la génération du PDF: " . json_encode($result)); // Log pour le débogage
             if (!$result) {
@@ -407,13 +412,6 @@ class ServiceFacture {
             }
 
             // Construire l'URL du PDF
-            // // $pdfUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://$_SERVER[HTTP_HOST]/" . $pdfPath;
-            // // Construire l'URL du PDF
-            // $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http";
-            // $host = $_SERVER['HTTP_HOST'];
-            // $basePath = $basePath = dirname($_SERVER['PHP_SELF']);
-            // $pdfUrl = $protocol . "://" . $host . $basePath . '/' . $pdfPath;
-
             $pdfUrl = factures_url($pdfFilename, $this->serviceParametre);
 
             // Vérifier l'état actuel de la facture
@@ -918,43 +916,21 @@ class ServiceFacture {
     }
 
     /**
-     * Met à jour les factures en retard de paiement
+     * ✅ MÉTHODE OBSOLÈTE: Met à jour les factures en retard de paiement
+     * Cette méthode n'est plus utilisée car l'état "Retard" est calculé dynamiquement côté client
      * 
-     * @return array Résultat de l'opération
+     * @return array Résultat avec un message d'information
+     * @deprecated L'état "Retard" est maintenant calculé dynamiquement côté client
      */
     public function mettreAJourFacturesEnRetard() {
-        try {
-            // Récupérer le délai de paiement standard des paramètres
-            $parametre = $this->serviceParametre->getParametre('Delai Paiement', 'Facture', 'Paiement');
-            $delaiPaiement = $parametre->valeur_parametre ?? 30;
-            
-            // Démarrer la transaction
-            $this->conn->beginTransaction();
-            
-            // Appeler la méthode du contrôleur
-            $resultatMiseAJour = FactureControleur::mettreAJourFacturesEnRetard($this->conn, $delaiPaiement);
-            
-            // Valider la transaction
-            $this->conn->commit();
-            
-            return [
-                'success' => true,
-                'message' => $resultatMiseAJour['facturesModifiees'] . ' facture(s) mise(s) à jour en état "Retard"',
-                'facturesModifiees' => $resultatMiseAJour['facturesModifiees'],
-                'listeFactures' => $resultatMiseAJour['listeFactures']
-            ];
-            
-        } catch (Exception $e) {
-            // Annuler la transaction en cas d'erreur
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-            
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la mise à jour des factures en retard: ' . $e->getMessage()
-            ];
-        }
+        error_log("⚠️ ServiceFacture::mettreAJourFacturesEnRetard() appelée - Cette méthode est obsolète (état Retard calculé côté client)");
+        
+        return [
+            'success' => true,
+            'message' => 'Les retards sont calculés automatiquement côté client, aucune mise à jour nécessaire',
+            'facturesModifiees' => 0,
+            'listeFactures' => []
+        ];
     }
 
     /**

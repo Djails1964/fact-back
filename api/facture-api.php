@@ -246,7 +246,8 @@ try {
             $resultat = $serviceFacture->listerFactures($options);
             
             if (is_dev_mode()) {
-                error_log("facture-api - Résultat liste factures (nombre): " . (isset($resultat['data']) ? count($resultat['data']) : 'N/A'));
+                error_log("facture-api - Résultat liste factures: " . json_encode($resultat));
+                error_log("facture-api - Résultat liste factures (nombre): " . (isset($resultat['factures']) ? count($resultat['factures']) : 'N/A'));
             }
             
             echo json_encode($resultat);
@@ -289,10 +290,23 @@ try {
                 exit;
             }
 
-            // Changer l'état d'une facture
+            // Changer l'état d'une facture (avec protection contre l'état "Retard")
             if (isset($_GET['changerEtat']) && isset($_GET['id'])) {
                 if (!isset($data['nouvelEtat'])) {
                     throw new Exception('Nouvel état non spécifié');
+                }
+                
+                // ✅ PROTECTION: Empêcher la persistance de l'état "Retard"
+                if ($data['nouvelEtat'] === 'Retard') {
+                    if (is_dev_mode()) {
+                        error_log("⚠️ facture-api - Tentative de persistance de l'état 'Retard' bloquée (user: $userId)");
+                    }
+                    echo json_encode([
+                        'success' => false,
+                        'message' => 'L\'état "Retard" ne peut pas être persisté. Il est calculé automatiquement côté client.',
+                        'code' => 'RETARD_NOT_PERSISTABLE'
+                    ]);
+                    break;
                 }
                 
                 if (is_dev_mode()) {
@@ -346,16 +360,7 @@ try {
                 break;
             }
 
-            // Mettre à jour les factures en retard
-            if (isset($_GET['mettreAJourRetards'])) {
-                if (is_dev_mode()) {
-                    error_log("facture-api - POST mise à jour factures en retard (user: $userId)");
-                }
-                
-                $resultat = $serviceFacture->mettreAJourFacturesEnRetard();
-                echo json_encode($resultat);
-                break;
-            }
+            // ✅ SUPPRIMÉ: Route mettreAJourRetards (plus nécessaire, calculé côté client)
             
             // Créer une facture
             if (!$data) {

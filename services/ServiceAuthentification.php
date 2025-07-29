@@ -4,7 +4,6 @@
  * Emplacement: fact-back/services/ServiceAuthentification.php
  */
 
-require_once realpath(__DIR__ . '/../api/database.php');
 require_once realpath(__DIR__ . '/../controllers/AuthentificationControleur.php');
 require_once realpath(__DIR__ . '/ActivityLogger.php'); // NOUVEAU: ActivityLogger
 

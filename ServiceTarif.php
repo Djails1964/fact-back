@@ -1,7 +1,6 @@
 <?php
 // ServiceTarif.php
 
-require_once 'database.php';
 require_once 'TarifControleur.php';
 
 class ServiceTarif {

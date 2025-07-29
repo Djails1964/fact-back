@@ -89,6 +89,218 @@ class PaiementControleur {
     }
     
     /**
+     * Récupère un paiement spécifique par son ID
+     * 
+     * @param PDO $conn La connexion à la base de données
+     * @param int $paiementId ID du paiement
+     * @return array Informations du paiement
+     * @throws Exception En cas d'erreur
+     */
+    public static function getPaiement($conn, $paiementId) {
+        try {
+            $sql = "SELECT p.*, 
+                           f.numero_facture, f.montant_total, f.ristourne,
+                           CONCAT(c.prenom, ' ', c.nom) as nom_client,
+                           c.id as id_client
+                    FROM paiement p
+                    JOIN facture f ON p.id_facture = f.id_facture
+                    JOIN client c ON f.id_client = c.id
+                    WHERE p.id_paiement = ? AND p.statut = 'confirme'";
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->execute([$paiementId]);
+            $paiement = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$paiement) {
+                throw new Exception('Paiement non trouvé');
+            }
+            
+            return [
+                'success' => true,
+                'paiement' => $paiement
+            ];
+            
+        } catch (PDOException $e) {
+            error_log("Erreur SQL lors de la récupération du paiement: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération du paiement');
+        }
+    }
+    
+    /**
+     * Récupère la liste des paiements avec filtrage et pagination
+     * 
+     * @param PDO $conn La connexion à la base de données
+     * @param array $options Options de filtrage et pagination
+     * @return array Liste des paiements avec pagination
+     * @throws Exception En cas d'erreur
+     */
+    public static function listerPaiements($conn, $options = []) {
+        try {
+            // Construction de la requête de base
+            $sql = "SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, 
+                           p.commentaire, p.numero_paiement, p.date_creation,
+                           f.id_facture, f.numero_facture, f.montant_total, f.ristourne,
+                           CONCAT(c.prenom, ' ', c.nom) as nom_client,
+                           c.id as id_client
+                    FROM paiement p
+                    JOIN facture f ON p.id_facture = f.id_facture
+                    JOIN client c ON f.id_client = c.id
+                    WHERE p.statut = 'confirme'";
+            
+            $params = [];
+            
+            // Filtrage par année
+            if (!empty($options['annee'])) {
+                $sql .= " AND YEAR(p.date_paiement) = ?";
+                $params[] = $options['annee'];
+            }
+            
+            // Filtrage par mois
+            if (!empty($options['mois'])) {
+                $sql .= " AND MONTH(p.date_paiement) = ?";
+                $params[] = $options['mois'];
+            }
+            
+            // Filtrage par méthode de paiement
+            if (!empty($options['methode'])) {
+                $sql .= " AND p.methode_paiement = ?";
+                $params[] = $options['methode'];
+            }
+            
+            // Filtrage par client
+            if (!empty($options['client_id'])) {
+                $sql .= " AND c.id = ?";
+                $params[] = $options['client_id'];
+            }
+            
+            // Filtrage par facture
+            if (!empty($options['facture_id'])) {
+                $sql .= " AND f.id_facture = ?";
+                $params[] = $options['facture_id'];
+            }
+            
+            // Tri par défaut : plus récents en premier
+            $sql .= " ORDER BY p.date_paiement DESC, p.date_creation DESC";
+            
+            // Pagination
+            $page = intval($options['page'] ?? 1);
+            $limit = intval($options['limit'] ?? 50);
+            $offset = ($page - 1) * $limit;
+            
+            // Compter le total d'abord
+            $countSql = "SELECT COUNT(*) as total FROM (" . str_replace("SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, p.commentaire, p.numero_paiement, p.date_creation, f.id_facture, f.numero_facture, f.montant_total, f.ristourne, CONCAT(c.prenom, ' ', c.nom) as nom_client, c.id as id_client", "SELECT 1", $sql) . ") as count_query";
+            $countStmt = $conn->prepare($countSql);
+            $countStmt->execute($params);
+            $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Ajouter la limitation avec des entiers
+            $sql .= " LIMIT " . $limit . " OFFSET " . $offset;
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->execute($params);
+            $paiements = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Calculer les métadonnées de pagination
+            $totalPages = ceil($total / $limit);
+            
+            return [
+                'success' => true,
+                'paiements' => $paiements,
+                'pagination' => [
+                    'page_actuelle' => $page,
+                    'total_pages' => $totalPages,
+                    'total_elements' => $total,
+                    'elements_par_page' => $limit,
+                    'a_page_precedente' => $page > 1,
+                    'a_page_suivante' => $page < $totalPages
+                ]
+            ];
+            
+        } catch (PDOException $e) {
+            error_log("Erreur SQL lors de la récupération des paiements: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération des paiements');
+        }
+    }
+    
+    /**
+     * Récupère les statistiques globales des paiements
+     * 
+     * @param PDO $conn La connexion à la base de données
+     * @param int|null $annee Année pour filtrer les statistiques
+     * @return array Statistiques complètes
+     * @throws Exception En cas d'erreur
+     */
+    public static function getStatistiquesGlobales($conn, $annee = null) {
+        try {
+            $whereClause = "WHERE p.statut = 'confirme'";
+            $params = [];
+            
+            if ($annee) {
+                $whereClause .= " AND YEAR(p.date_paiement) = ?";
+                $params[] = $annee;
+            }
+            
+            // Statistiques générales
+            $sqlStats = "SELECT 
+                            COUNT(*) as total_paiements,
+                            SUM(p.montant_paye) as montant_total_paye,
+                            AVG(p.montant_paye) as montant_moyen,
+                            MIN(p.montant_paye) as montant_min,
+                            MAX(p.montant_paye) as montant_max,
+                            COUNT(DISTINCT p.id_facture) as nombre_factures_payees
+                         FROM paiement p
+                         $whereClause";
+            
+            $stmt = $conn->prepare($sqlStats);
+            $stmt->execute($params);
+            $statsGenerales = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            // Répartition par méthode de paiement
+            $sqlMethodes = "SELECT 
+                               p.methode_paiement,
+                               COUNT(*) as nombre_paiements,
+                               SUM(p.montant_paye) as montant_total
+                            FROM paiement p
+                            $whereClause
+                            GROUP BY p.methode_paiement
+                            ORDER BY montant_total DESC";
+            
+            $stmt = $conn->prepare($sqlMethodes);
+            $stmt->execute($params);
+            $repartitionMethodes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Évolution mensuelle
+            $sqlMensuel = "SELECT 
+                              YEAR(p.date_paiement) as annee,
+                              MONTH(p.date_paiement) as mois,
+                              COUNT(*) as nombre_paiements,
+                              SUM(p.montant_paye) as montant_total
+                           FROM paiement p
+                           $whereClause
+                           GROUP BY YEAR(p.date_paiement), MONTH(p.date_paiement)
+                           ORDER BY annee, mois";
+            
+            $stmt = $conn->prepare($sqlMensuel);
+            $stmt->execute($params);
+            $evolutionMensuelle = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'success' => true,
+                'statistiques' => [
+                    'generales' => $statsGenerales,
+                    'repartition_methodes' => $repartitionMethodes,
+                    'evolution_mensuelle' => $evolutionMensuelle,
+                    'annee_filtree' => $annee
+                ]
+            ];
+            
+        } catch (PDOException $e) {
+            error_log("Erreur SQL lors de la récupération des statistiques: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération des statistiques');
+        }
+    }
+    
+    /**
      * Récupère l'historique des paiements d'une facture
      * 
      * @param PDO $conn La connexion à la base de données
