@@ -105,7 +105,7 @@ class PaiementControleur {
                     FROM paiement p
                     JOIN facture f ON p.id_facture = f.id_facture
                     JOIN client c ON f.id_client = c.id
-                    WHERE p.id_paiement = ? AND p.statut = 'confirme'";
+                    WHERE p.id_paiement = ?";
             
             $stmt = $conn->prepare($sql);
             $stmt->execute([$paiementId]);
@@ -138,42 +138,50 @@ class PaiementControleur {
         try {
             // Construction de la requête de base
             $sql = "SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, 
-                           p.commentaire, p.numero_paiement, p.date_creation,
-                           f.id_facture, f.numero_facture, f.montant_total, f.ristourne,
-                           CONCAT(c.prenom, ' ', c.nom) as nom_client,
-                           c.id as id_client
+                        p.commentaire, p.numero_paiement, p.date_creation, p.statut,
+                        p.date_annulation, p.motif_annulation,
+                        f.id_facture, f.numero_facture, f.montant_total, f.ristourne,
+                        CONCAT(c.prenom, ' ', c.nom) as nom_client,
+                        c.id as id_client
                     FROM paiement p
                     JOIN facture f ON p.id_facture = f.id_facture
                     JOIN client c ON f.id_client = c.id
-                    WHERE p.statut = 'confirme'";
+                    WHERE 1=1"; // Inclure tous les paiements (confirmés et annulés)
             
             $params = [];
             
-            // Filtrage par année
+            // Filtrage par statut (optionnel)
+            if (!empty($options['statut'])) {
+                $sql .= " AND p.statut = ?";
+                $params[] = $options['statut'];
+
+                // ✅ DEBUG: Log pour vérifier le filtrage
+                if (is_dev_mode()) {
+                    error_log("PaiementControleur - Filtrage par statut: " . $options['statut']);
+                }
+            }
+            
+            // Autres filtres existants...
             if (!empty($options['annee'])) {
                 $sql .= " AND YEAR(p.date_paiement) = ?";
                 $params[] = $options['annee'];
             }
             
-            // Filtrage par mois
             if (!empty($options['mois'])) {
                 $sql .= " AND MONTH(p.date_paiement) = ?";
                 $params[] = $options['mois'];
             }
             
-            // Filtrage par méthode de paiement
             if (!empty($options['methode'])) {
                 $sql .= " AND p.methode_paiement = ?";
                 $params[] = $options['methode'];
             }
             
-            // Filtrage par client
             if (!empty($options['client_id'])) {
                 $sql .= " AND c.id = ?";
                 $params[] = $options['client_id'];
             }
             
-            // Filtrage par facture
             if (!empty($options['facture_id'])) {
                 $sql .= " AND f.id_facture = ?";
                 $params[] = $options['facture_id'];
@@ -187,13 +195,15 @@ class PaiementControleur {
             $limit = intval($options['limit'] ?? 50);
             $offset = ($page - 1) * $limit;
             
-            // Compter le total d'abord
-            $countSql = "SELECT COUNT(*) as total FROM (" . str_replace("SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, p.commentaire, p.numero_paiement, p.date_creation, f.id_facture, f.numero_facture, f.montant_total, f.ristourne, CONCAT(c.prenom, ' ', c.nom) as nom_client, c.id as id_client", "SELECT 1", $sql) . ") as count_query";
+            // Compter le total
+            $countSql = "SELECT COUNT(*) as total FROM (" . 
+                    str_replace("SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, p.commentaire, p.numero_paiement, p.date_creation, p.statut, p.date_annulation, p.motif_annulation, f.id_facture, f.numero_facture, f.montant_total, f.ristourne, CONCAT(c.prenom, ' ', c.nom) as nom_client, c.id as id_client", "SELECT 1", $sql) . 
+                    ") as count_query";
             $countStmt = $conn->prepare($countSql);
             $countStmt->execute($params);
             $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
             
-            // Ajouter la limitation avec des entiers
+            // Ajouter la limitation
             $sql .= " LIMIT " . $limit . " OFFSET " . $offset;
             
             $stmt = $conn->prepare($sql);
@@ -313,7 +323,7 @@ class PaiementControleur {
             $sql = "SELECT p.*, f.numero_facture, f.montant_total, f.ristourne
                     FROM paiement p
                     JOIN facture f ON p.id_facture = f.id_facture
-                    WHERE p.id_facture = ? AND p.statut = 'confirme'
+                    WHERE p.id_facture = ?
                     ORDER BY p.numero_paiement ASC, p.date_creation ASC";
             
             $stmt = $conn->prepare($sql);
@@ -328,6 +338,59 @@ class PaiementControleur {
         } catch (PDOException $e) {
             error_log("Erreur SQL lors de la récupération de l'historique: " . $e->getMessage());
             throw new Exception('Erreur lors de la récupération de l\'historique des paiements');
+        }
+    }
+
+    /**
+     * Annule un paiement (au lieu de le supprimer)
+     * 
+     * @param PDO $conn La connexion à la base de données
+     * @param int $paiementId ID du paiement à annuler
+     * @param string $motifAnnulation Motif de l'annulation
+     * @return array Résultat de l'opération
+     * @throws Exception En cas d'erreur
+     */
+    public static function annulerPaiement($conn, $paiementId, $motifAnnulation = null) {
+        try {
+            // Vérifier que le paiement existe et n'est pas déjà annulé
+            $sqlCheck = "SELECT id_paiement, id_facture, montant_paye, statut, numero_paiement 
+                        FROM paiement 
+                        WHERE id_paiement = ?";
+            $stmtCheck = $conn->prepare($sqlCheck);
+            $stmtCheck->execute([$paiementId]);
+            $paiement = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$paiement) {
+                throw new Exception('Paiement non trouvé');
+            }
+            
+            if ($paiement['statut'] === 'annule') {
+                throw new Exception('Ce paiement est déjà annulé');
+            }
+            
+            // Annuler le paiement (mettre à jour le statut et la date d'annulation)
+            $sql = "UPDATE paiement 
+                    SET statut = 'annule', 
+                        date_annulation = NOW(),
+                        motif_annulation = ?,
+                        date_modification = NOW()
+                    WHERE id_paiement = ?";
+            $stmt = $conn->prepare($sql);
+            $stmt->execute([$motifAnnulation, $paiementId]);
+            
+            // Les triggers se chargent automatiquement de la mise à jour de la facture
+            
+            return [
+                'success' => true,
+                'message' => 'Paiement annulé avec succès',
+                'paiementId' => $paiementId,
+                'factureId' => $paiement['id_facture'],
+                'numeroPaiement' => $paiement['numero_paiement']
+            ];
+            
+        } catch (PDOException $e) {
+            error_log("Erreur SQL lors de l'annulation du paiement: " . $e->getMessage());
+            throw new Exception('Erreur lors de l\'annulation du paiement: ' . $e->getMessage());
         }
     }
     

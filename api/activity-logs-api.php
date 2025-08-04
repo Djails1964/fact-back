@@ -1,6 +1,6 @@
 <?php
 /**
- * activity-logs-api.php - API pour les logs d'activité
+ * activity-logs-api.php - API pour les logs d'activité - Version corrigée avec architecture Service
  * Emplacement: fact-back/api/activity-logs-api.php
  */
 
@@ -41,87 +41,89 @@ try {
         
         switch ($action) {
             case 'get_logs':
-                // Récupérer les paramètres de filtre et pagination
-                $filters = [];
-                $limit = (int)($_GET['limit'] ?? 50);
-                $page = (int)($_GET['page'] ?? 1);
+                // ✅ VALIDATION: Limiter et valider les paramètres de pagination
+                $limit = min(1000, max(1, (int)($_GET['limit'] ?? 50))); // Entre 1 et 1000
+                $page = max(1, (int)($_GET['page'] ?? 1));
                 $offset = ($page - 1) * $limit;
                 
-                // Construire les filtres
+                // Construire les filtres avec validation
+                $filters = [];
+                
                 if (!empty($_GET['action_type'])) {
-                    $filters['action_type'] = $_GET['action_type'];
+                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['severity'])) {
+                if (!empty($_GET['severity']) && in_array($_GET['severity'], ['info', 'warning', 'error', 'critical'])) {
                     $filters['severity'] = $_GET['severity'];
                 }
                 
                 if (!empty($_GET['user_name'])) {
-                    $filters['user_name'] = $_GET['user_name'];
+                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['date_from'])) {
+                if (!empty($_GET['date_from']) && DateTime::createFromFormat('Y-m-d', $_GET['date_from'])) {
                     $filters['date_from'] = $_GET['date_from'];
                 }
                 
-                if (!empty($_GET['date_to'])) {
+                if (!empty($_GET['date_to']) && DateTime::createFromFormat('Y-m-d', $_GET['date_to'])) {
                     $filters['date_to'] = $_GET['date_to'];
                 }
                 
-                if (!empty($_GET['user_id'])) {
-                    $filters['user_id'] = $_GET['user_id'];
+                if (!empty($_GET['user_id']) && is_numeric($_GET['user_id'])) {
+                    $filters['user_id'] = (int)$_GET['user_id'];
                 }
                 
                 if (!empty($_GET['entity_type'])) {
-                    $filters['entity_type'] = $_GET['entity_type'];
+                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['entity_id'])) {
-                    $filters['entity_id'] = $_GET['entity_id'];
+                if (!empty($_GET['entity_id']) && is_numeric($_GET['entity_id'])) {
+                    $filters['entity_id'] = (int)$_GET['entity_id'];
                 }
                 
-                // Récupération des logs via le service
+                // ✅ ARCHITECTURE CORRECTE: Récupération via le service
                 $result = $serviceActivityLogs->getLogs($filters, $limit, $offset);
                 echo json_encode($result);
                 break;
                 
             case 'export_csv':
-                // Export CSV
+                // Export CSV avec validation des filtres
                 $filters = [];
                 
-                // Récupérer les mêmes filtres que pour get_logs
+                // Récupérer les mêmes filtres que pour get_logs avec validation
                 if (!empty($_GET['action_type'])) {
-                    $filters['action_type'] = $_GET['action_type'];
+                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['severity'])) {
+                if (!empty($_GET['severity']) && in_array($_GET['severity'], ['info', 'warning', 'error', 'critical'])) {
                     $filters['severity'] = $_GET['severity'];
                 }
                 
                 if (!empty($_GET['user_name'])) {
-                    $filters['user_name'] = $_GET['user_name'];
+                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['date_from'])) {
+                if (!empty($_GET['date_from']) && DateTime::createFromFormat('Y-m-d', $_GET['date_from'])) {
                     $filters['date_from'] = $_GET['date_from'];
                 }
                 
-                if (!empty($_GET['date_to'])) {
+                if (!empty($_GET['date_to']) && DateTime::createFromFormat('Y-m-d', $_GET['date_to'])) {
                     $filters['date_to'] = $_GET['date_to'];
                 }
                 
-                if (!empty($_GET['user_id'])) {
-                    $filters['user_id'] = $_GET['user_id'];
+                if (!empty($_GET['user_id']) && is_numeric($_GET['user_id'])) {
+                    $filters['user_id'] = (int)$_GET['user_id'];
                 }
                 
                 if (!empty($_GET['entity_type'])) {
-                    $filters['entity_type'] = $_GET['entity_type'];
+                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_STRING);
                 }
                 
-                if (!empty($_GET['entity_id'])) {
-                    $filters['entity_id'] = $_GET['entity_id'];
+                if (!empty($_GET['entity_id']) && is_numeric($_GET['entity_id'])) {
+                    $filters['entity_id'] = (int)$_GET['entity_id'];
                 }
                 
+                // ✅ ARCHITECTURE CORRECTE: Export via le service
                 $exportResult = $serviceActivityLogs->exportToCsv($filters);
                 
                 if ($exportResult['success']) {
@@ -144,18 +146,92 @@ try {
                 break;
                 
             case 'statistics':
-                // Récupérer les statistiques
+                // ✅ ARCHITECTURE CORRECTE: Statistiques via le service
                 $result = $serviceActivityLogs->getStatistics();
                 echo json_encode($result);
                 break;
                 
+            case 'recent':
+                // ✅ NOUVEAU: Récupérer les logs récents (24h) - VIA SERVICE
+                $limit = min(200, max(10, (int)($_GET['limit'] ?? 50)));
+                
+                // Utiliser le service avec des filtres pour les 24 dernières heures
+                $filters = [
+                    'date_from' => date('Y-m-d', strtotime('-1 day'))
+                ];
+                
+                $result = $serviceActivityLogs->getLogs($filters, $limit, 0);
+                
+                echo json_encode([
+                    'success' => $result['success'],
+                    'logs' => $result['logs'] ?? [],
+                    'total' => count($result['logs'] ?? []),
+                    'period' => '24 heures',
+                    'message' => $result['message'] ?? null
+                ]);
+                break;
+                
+            case 'top_actions':
+                // ✅ NOUVEAU: Actions les plus fréquentes - AJOUTER AU SERVICE
+                $limit = min(20, max(5, (int)($_GET['limit'] ?? 10)));
+                $days = min(90, max(1, (int)($_GET['days'] ?? 30)));
+                
+                $result = $serviceActivityLogs->getTopActions($limit, $days);
+                echo json_encode($result);
+                break;
+                
+            case 'top_users':
+                // ✅ NOUVEAU: Utilisateurs les plus actifs - AJOUTER AU SERVICE
+                $limit = min(20, max(5, (int)($_GET['limit'] ?? 10)));
+                $days = min(90, max(1, (int)($_GET['days'] ?? 30)));
+                
+                $result = $serviceActivityLogs->getTopUsers($limit, $days);
+                echo json_encode($result);
+                break;
+                
+            case 'daily_evolution':
+                // ✅ NOUVEAU: Évolution quotidienne - AJOUTER AU SERVICE
+                $days = min(90, max(7, (int)($_GET['days'] ?? 30)));
+                
+                $result = $serviceActivityLogs->getDailyEvolution($days);
+                echo json_encode($result);
+                break;
+                
+            case 'entity_logs':
+                // ✅ NOUVEAU: Logs pour une entité spécifique - VIA SERVICE
+                $entityType = filter_var($_GET['entity_type'] ?? '', FILTER_SANITIZE_STRING);
+                $entityId = (int)($_GET['entity_id'] ?? 0);
+                $limit = min(100, max(5, (int)($_GET['limit'] ?? 20)));
+                
+                if (empty($entityType) || $entityId <= 0) {
+                    throw new Exception('entity_type et entity_id sont requis', 400);
+                }
+                
+                // Utiliser le service avec des filtres spécifiques à l'entité
+                $filters = [
+                    'entity_type' => $entityType,
+                    'entity_id' => $entityId
+                ];
+                
+                $result = $serviceActivityLogs->getLogs($filters, $limit, 0);
+                
+                echo json_encode([
+                    'success' => $result['success'],
+                    'logs' => $result['logs'] ?? [],
+                    'entity_type' => $entityType,
+                    'entity_id' => $entityId,
+                    'total' => $result['total'] ?? 0,
+                    'message' => $result['message'] ?? null
+                ]);
+                break;
+                
             case 'clean_old_logs':
-                // Nettoyage des anciens logs (action administrative)
+                // ✅ ARCHITECTURE CORRECTE: Nettoyage via le service
                 if ($userRole !== 'admin') {
                     throw new Exception('Seuls les administrateurs peuvent effectuer le nettoyage des logs', 403);
                 }
                 
-                $retentionDays = (int)($_GET['retention_days'] ?? 365);
+                $retentionDays = min(730, max(30, (int)($_GET['retention_days'] ?? 365))); // Entre 30 jours et 2 ans
                 $result = $serviceActivityLogs->cleanOldLogs($retentionDays);
                 echo json_encode($result);
                 break;
@@ -165,10 +241,41 @@ try {
         }
         
     } elseif ($method === 'POST') {
-        // Actions POST (futures extensions)
-        $action = $_POST['action'] ?? '';
+        // Actions POST avec validation du JSON
+        $rawData = file_get_contents('php://input');
+        $data = json_decode($rawData, true);
+        
+        if ($data === null && json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception('Données JSON invalides: ' . json_last_error_msg(), 400);
+        }
+        
+        $action = $data['action'] ?? '';
         
         switch ($action) {
+            case 'mark_resolved':
+                // ✅ PLACEHOLDER: Marquer un log comme résolu - AJOUTER AU SERVICE
+                $logId = (int)($data['log_id'] ?? 0);
+                
+                if ($logId <= 0) {
+                    throw new Exception('ID de log invalide', 400);
+                }
+                
+                $result = $serviceActivityLogs->markLogAsResolved($logId, $userId);
+                echo json_encode($result);
+                break;
+                
+            case 'archive':
+                // ✅ PLACEHOLDER: Archiver un log - AJOUTER AU SERVICE
+                $logId = (int)($data['log_id'] ?? 0);
+                
+                if ($logId <= 0) {
+                    throw new Exception('ID de log invalide', 400);
+                }
+                
+                $result = $serviceActivityLogs->archiveLog($logId, $userId);
+                echo json_encode($result);
+                break;
+                
             default:
                 throw new Exception('Action POST non supportée: ' . $action, 400);
         }
@@ -188,7 +295,7 @@ try {
         $httpCode = 401;
     } elseif (strpos($e->getMessage(), 'Droits') !== false || strpos($e->getMessage(), 'administrateur') !== false) {
         $httpCode = 403;
-    } elseif (strpos($e->getMessage(), 'Action non reconnue') !== false) {
+    } elseif (strpos($e->getMessage(), 'Action non reconnue') !== false || strpos($e->getMessage(), 'invalide') !== false) {
         $httpCode = 400;
     } elseif (strpos($e->getMessage(), 'Méthode HTTP') !== false) {
         $httpCode = 405;

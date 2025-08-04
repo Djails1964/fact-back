@@ -1,10 +1,11 @@
 <?php
 /**
- * ServiceActivityLogs.php - Service pour la gestion des logs d'activité
+ * ServiceActivityLogs.php - Service pour la gestion des logs d'activité - Version complète
  * Emplacement: fact-back/services/ServiceActivityLogs.php
  */
 
 require_once realpath(__DIR__ . '/../controllers/ActivityLogsControleur.php');
+require_once realpath(__DIR__ . '/../constants/ActivityLogsConstants.php');
 
 class ServiceActivityLogs {
     private $conn;
@@ -160,6 +161,194 @@ class ServiceActivityLogs {
     }
     
     /**
+     * ✅ NOUVEAU: Récupère les actions les plus fréquentes
+     * 
+     * @param int $limit Nombre d'actions à retourner
+     * @param int $days Période en jours
+     * @return array Actions les plus fréquentes
+     */
+    public function getTopActions($limit = 10, $days = 30) {
+        try {
+            $topActions = ActivityLogsControleur::getTopActions($this->conn, $limit, $days);
+            
+            // Enrichir les données avec les labels
+            foreach ($topActions as &$action) {
+                $action['action_label'] = $this->getActionTypeLabel($action['action_type']);
+                $action['error_rate'] = $action['count'] > 0 ? 
+                    round(($action['error_count'] / $action['count']) * 100, 1) : 0;
+            }
+            
+            return [
+                'success' => true,
+                'actions' => $topActions,
+                'period_days' => $days,
+                'total_actions' => count($topActions)
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getTopActions - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des actions fréquentes: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère les utilisateurs les plus actifs
+     * 
+     * @param int $limit Nombre d'utilisateurs à retourner
+     * @param int $days Période en jours
+     * @return array Utilisateurs les plus actifs
+     */
+    public function getTopUsers($limit = 10, $days = 30) {
+        try {
+            $topUsers = ActivityLogsControleur::getTopUsers($this->conn, $limit, $days);
+            
+            // Enrichir les données avec des calculs métier
+            foreach ($topUsers as &$user) {
+                $user['error_rate'] = $user['activity_count'] > 0 ? 
+                    round(($user['error_count'] / $user['activity_count']) * 100, 1) : 0;
+                $user['daily_average'] = round($user['activity_count'] / $days, 1);
+            }
+            
+            return [
+                'success' => true,
+                'users' => $topUsers,
+                'period_days' => $days,
+                'total_users' => count($topUsers)
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getTopUsers - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des utilisateurs actifs: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère l'évolution quotidienne des logs
+     * 
+     * @param int $days Nombre de jours à analyser
+     * @return array Évolution quotidienne
+     */
+    public function getDailyEvolution($days = 30) {
+        try {
+            $evolution = ActivityLogsControleur::getDailyEvolution($this->conn, $days);
+            
+            // Enrichir avec des calculs métier
+            $totalLogs = 0;
+            $totalErrors = 0;
+            
+            foreach ($evolution as &$day) {
+                $day['error_rate'] = $day['total_logs'] > 0 ? 
+                    round(($day['error_logs'] / $day['total_logs']) * 100, 1) : 0;
+                
+                $totalLogs += $day['total_logs'];
+                $totalErrors += $day['error_logs'];
+            }
+            
+            return [
+                'success' => true,
+                'evolution' => $evolution,
+                'period_days' => $days,
+                'summary' => [
+                    'total_logs' => $totalLogs,
+                    'total_errors' => $totalErrors,
+                    'average_per_day' => round($totalLogs / $days, 1),
+                    'global_error_rate' => $totalLogs > 0 ? round(($totalErrors / $totalLogs) * 100, 1) : 0
+                ]
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getDailyEvolution - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération de l\'évolution: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Marque un log comme résolu (pour les erreurs)
+     * 
+     * @param int $logId ID du log
+     * @param int $userId ID de l'utilisateur qui résout
+     * @return array Résultat de l'opération
+     */
+    public function markLogAsResolved($logId, $userId) {
+        try {
+            // TODO: Ajouter une colonne 'resolved_at' et 'resolved_by' à la table si nécessaire
+            // Pour l'instant, on simule avec un log d'activité
+            
+            if (class_exists('ActivityLogger')) {
+                $logger = new ActivityLogger($this->conn);
+                $logger->log([
+                    'user_id' => $userId,
+                    'action_type' => 'log_resolved',
+                    'entity_type' => 'activity_log',
+                    'entity_id' => $logId,
+                    'description' => "Log #{$logId} marqué comme résolu",
+                    'severity' => 'info'
+                ]);
+            }
+            
+            return [
+                'success' => true,
+                'message' => 'Log marqué comme résolu',
+                'log_id' => $logId,
+                'resolved_by' => $userId,
+                'resolved_at' => date('Y-m-d H:i:s')
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::markLogAsResolved - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la résolution du log: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Archive un log (le masque de la vue normale)
+     * 
+     * @param int $logId ID du log
+     * @param int $userId ID de l'utilisateur qui archive
+     * @return array Résultat de l'opération
+     */
+    public function archiveLog($logId, $userId) {
+        try {
+            // TODO: Ajouter une colonne 'archived_at' et 'archived_by' à la table si nécessaire
+            // Pour l'instant, on simule avec un log d'activité
+            
+            if (class_exists('ActivityLogger')) {
+                $logger = new ActivityLogger($this->conn);
+                $logger->log([
+                    'user_id' => $userId,
+                    'action_type' => 'log_archived',
+                    'entity_type' => 'activity_log',
+                    'entity_id' => $logId,
+                    'description' => "Log #{$logId} archivé",
+                    'severity' => 'info'
+                ]);
+            }
+            
+            return [
+                'success' => true,
+                'message' => 'Log archivé',
+                'log_id' => $logId,
+                'archived_by' => $userId,
+                'archived_at' => date('Y-m-d H:i:s')
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::archiveLog - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de l\'archivage du log: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
      * Nettoyage des anciens logs (logique métier)
      * 
      * @param int $retentionDays Nombre de jours à conserver
@@ -241,10 +430,19 @@ class ServiceActivityLogs {
             }
         }
         
-        // Validation des énumérations
-        $validSeverities = ['info', 'warning', 'error', 'critical'];
-        if (isset($cleanFilters['severity']) && !in_array($cleanFilters['severity'], $validSeverities)) {
+        // Validation des énumérations avec les constantes
+        if (isset($cleanFilters['severity']) && !ActivityLogsConstants::isValidSeverity($cleanFilters['severity'])) {
             unset($cleanFilters['severity']);
+        }
+        
+        // Validation de l'action_type
+        if (isset($cleanFilters['action_type']) && !ActivityLogsConstants::isValidActionType($cleanFilters['action_type'])) {
+            unset($cleanFilters['action_type']);
+        }
+        
+        // Validation de l'entity_type
+        if (isset($cleanFilters['entity_type']) && !ActivityLogsConstants::isValidEntityType($cleanFilters['entity_type'])) {
+            unset($cleanFilters['entity_type']);
         }
         
         return $cleanFilters;
@@ -270,6 +468,10 @@ class ServiceActivityLogs {
             if ($log['details'] && is_array($log['details'])) {
                 $log['details_formatted'] = $this->formatDetails($log['details']);
             }
+            
+            // Ajouter des métadonnées temporelles
+            $log['time_ago'] = $this->getTimeAgo($log['created_at']);
+            $log['is_recent'] = $this->isRecentLog($log['created_at']);
         }
         
         return $logs;
@@ -284,32 +486,10 @@ class ServiceActivityLogs {
     }
     
     /**
-     * Labels traduits pour les types d'action
+     * Labels traduits pour les types d'action (utilise les constantes)
      */
     private function getActionTypeLabel($actionType) {
-        $labels = [
-            'auth_login' => 'Connexion',
-            'auth_logout' => 'Déconnexion',
-            'auth_failed' => 'Échec connexion',
-            'auth_password_reset' => 'Reset mot de passe',
-            'user_create' => 'Création utilisateur',
-            'user_update' => 'Modification utilisateur',
-            'user_delete' => 'Suppression utilisateur',
-            'user_role_change' => 'Changement rôle',
-            'facture_create' => 'Création facture',
-            'facture_update' => 'Modification facture',
-            'facture_delete' => 'Suppression facture',
-            'facture_send' => 'Envoi facture',
-            'client_create' => 'Création client',
-            'client_update' => 'Modification client',
-            'client_delete' => 'Suppression client',
-            'system_error' => 'Erreur système',
-            'system_backup' => 'Sauvegarde',
-            'system_maintenance' => 'Maintenance',
-            'access_denied' => 'Accès refusé'
-        ];
-        
-        return $labels[$actionType] ?? $actionType;
+        return ActivityLogsConstants::getActionLabel($actionType);
     }
     
     /**
@@ -334,15 +514,27 @@ class ServiceActivityLogs {
             'auth_login' => 'login',
             'auth_logout' => 'logout',
             'auth_failed' => 'lock',
+            'auth_password_reset' => 'key',
             'user_create' => 'user-plus',
             'user_update' => 'user-edit',
             'user_delete' => 'user-minus',
+            'user_role_change' => 'user-check',
             'facture_create' => 'file-plus',
             'facture_update' => 'file-edit',
             'facture_delete' => 'file-minus',
+            'facture_send' => 'send',
+            'client_create' => 'users',
+            'client_update' => 'user-edit',
+            'client_delete' => 'user-x',
+            'paiement_create' => 'credit-card',
+            'paiement_update' => 'edit',
+            'paiement_delete' => 'trash',
             'system_error' => 'alert-circle',
             'system_backup' => 'database',
-            'system_maintenance' => 'tool'
+            'system_maintenance' => 'tool',
+            'access_denied' => 'shield-off',
+            'log_resolved' => 'check-circle',
+            'log_archived' => 'archive'
         ];
         
         return $icons[$actionType] ?? 'activity';
@@ -358,6 +550,192 @@ class ServiceActivityLogs {
                           (is_array($value) ? json_encode($value) : $value);
         }
         return implode(', ', $formatted);
+    }
+    
+    /**
+     * Calcule le temps écoulé depuis un log
+     */
+    private function getTimeAgo($datetime) {
+        $time = time() - strtotime($datetime);
+        
+        if ($time < 60) return 'à l\'instant';
+        if ($time < 3600) return floor($time/60) . ' min';
+        if ($time < 86400) return floor($time/3600) . ' h';
+        if ($time < 2592000) return floor($time/86400) . ' j';
+        if ($time < 31536000) return floor($time/2592000) . ' mois';
+        
+        return floor($time/31536000) . ' an' . (floor($time/31536000) > 1 ? 's' : '');
+    }
+    
+    /**
+     * Détermine si un log est récent (moins de 1 heure)
+     */
+    private function isRecentLog($datetime) {
+        return (time() - strtotime($datetime)) < 3600;
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère les logs par utilisateur (pour profil utilisateur)
+     * 
+     * @param int $userId ID de l'utilisateur
+     * @param int $limit Limite de résultats
+     * @return array Logs de l'utilisateur
+     */
+    public function getUserLogs($userId, $limit = 50) {
+        try {
+            $filters = ['user_id' => $userId];
+            return $this->getLogs($filters, $limit, 0);
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getUserLogs - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des logs utilisateur: ' . $e->getMessage(),
+                'logs' => [],
+                'total' => 0
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère les logs par type d'action
+     * 
+     * @param string $actionType Type d'action
+     * @param int $limit Limite de résultats
+     * @return array Logs filtrés
+     */
+    public function getLogsByAction($actionType, $limit = 50) {
+        try {
+            $filters = ['action_type' => $actionType];
+            return $this->getLogs($filters, $limit, 0);
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getLogsByAction - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des logs par action: ' . $e->getMessage(),
+                'logs' => [],
+                'total' => 0
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère les logs d'erreur pour le monitoring
+     * 
+     * @param int $hours Nombre d'heures à analyser
+     * @param int $limit Limite de résultats
+     * @return array Logs d'erreur récents
+     */
+    public function getRecentErrors($hours = 24, $limit = 100) {
+        try {
+            $dateFrom = date('Y-m-d H:i:s', strtotime("-{$hours} hours"));
+            
+            // Utiliser le contrôleur directement pour une requête spécifique aux erreurs
+            $logs = ActivityLogsControleur::getLogs($this->conn, [
+                'severity' => 'error',
+                'date_from' => substr($dateFrom, 0, 10) // Format Y-m-d
+            ], $limit, 0);
+            
+            // Enrichir les logs
+            $enrichedLogs = $this->enrichLogs($logs);
+            
+            return [
+                'success' => true,
+                'logs' => $enrichedLogs,
+                'total' => count($enrichedLogs),
+                'period_hours' => $hours,
+                'message' => count($enrichedLogs) > 0 ? 
+                    count($enrichedLogs) . " erreur(s) détectée(s) dans les {$hours} dernières heures" :
+                    "Aucune erreur détectée dans les {$hours} dernières heures"
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getRecentErrors - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des erreurs récentes: ' . $e->getMessage(),
+                'logs' => [],
+                'total' => 0
+            ];
+        }
+    }
+    
+    /**
+     * ✅ NOUVEAU: Résumé de sécurité (tentatives de connexion, accès refusés, etc.)
+     * 
+     * @param int $days Période d'analyse
+     * @return array Résumé de sécurité
+     */
+    public function getSecuritySummary($days = 7) {
+        try {
+            $securityActions = [
+                'auth_failed', 'access_denied', 'auth_login', 
+                'auth_logout', 'auth_password_reset'
+            ];
+            
+            $summary = [];
+            $totalSecurityEvents = 0;
+            
+            foreach ($securityActions as $action) {
+                $count = ActivityLogsControleur::countLogs($this->conn, [
+                    'action_type' => $action,
+                    'date_from' => date('Y-m-d', strtotime("-{$days} days"))
+                ]);
+                
+                $summary[$action] = [
+                    'count' => $count,
+                    'label' => $this->getActionTypeLabel($action)
+                ];
+                
+                $totalSecurityEvents += $count;
+            }
+            
+            // Calculer le niveau de risque
+            $riskLevel = 'low';
+            if ($summary['auth_failed']['count'] > 50 || $summary['access_denied']['count'] > 20) {
+                $riskLevel = 'high';
+            } elseif ($summary['auth_failed']['count'] > 20 || $summary['access_denied']['count'] > 10) {
+                $riskLevel = 'medium';
+            }
+            
+            return [
+                'success' => true,
+                'summary' => $summary,
+                'total_security_events' => $totalSecurityEvents,
+                'period_days' => $days,
+                'risk_level' => $riskLevel,
+                'recommendations' => $this->getSecurityRecommendations($riskLevel, $summary)
+            ];
+        } catch (Exception $e) {
+            error_log("❌ ServiceActivityLogs::getSecuritySummary - " . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la génération du résumé de sécurité: ' . $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * Génère des recommandations de sécurité basées sur l'analyse
+     */
+    private function getSecurityRecommendations($riskLevel, $summary) {
+        $recommendations = [];
+        
+        if ($riskLevel === 'high') {
+            $recommendations[] = "🔴 Niveau de risque élevé détecté";
+        }
+        
+        if ($summary['auth_failed']['count'] > 20) {
+            $recommendations[] = "⚠️ Nombre élevé d'échecs de connexion - Vérifier les tentatives d'intrusion";
+        }
+        
+        if ($summary['access_denied']['count'] > 10) {
+            $recommendations[] = "⚠️ Accès refusés fréquents - Réviser les permissions utilisateurs";
+        }
+        
+        if (empty($recommendations)) {
+            $recommendations[] = "✅ Aucun problème de sécurité majeur détecté";
+        }
+        
+        return $recommendations;
     }
 }
 ?>

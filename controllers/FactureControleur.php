@@ -408,54 +408,6 @@ class FactureControleur {
         }
     }
 
-    /**
-     * Enregistre le paiement d'une facture
-     * 
-     * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture
-     * @param array $data Données du paiement
-     * @return array Résultat de l'opération
-     * @throws Exception En cas d'erreur
-     */
-    public static function enregistrerPaiement($conn, $id, $data) {
-        try {
-            // Vérifier si la facture existe
-            $checkSql = "SELECT id_facture FROM facture WHERE id_facture = ?";
-            $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$id]);
-            
-            if ($checkStmt->rowCount() === 0) {
-                throw new Exception('Facture non trouvée');
-            }
-            
-            // Validation des données
-            if (!isset($data['datePaiement']) || !isset($data['montantPaye'])) {
-                throw new Exception('Données de paiement incomplètes');
-            }
-            
-            // Mettre à jour la facture
-            $sql = "UPDATE facture 
-                    SET date_paiement = ?, montant_paye = ? 
-                    WHERE id_facture = ?";
-            $stmt = $conn->prepare($sql);
-            
-            $stmt->execute([
-                $data['datePaiement'],
-                $data['montantPaye'],
-                $id
-            ]);
-            
-            return [
-                'success' => true,
-                'message' => 'Paiement enregistré avec succès',
-                'factureId' => $id
-            ];
-            
-        } catch(PDOException $e) {
-            error_log("Erreur SQL: " . $e->getMessage());
-            throw new Exception('Erreur lors de l\'enregistrement du paiement: ' . $e->getMessage());
-        }
-    }
 
     // ==================================================================================
     // MÉTHODES DE STATISTIQUES
@@ -693,25 +645,7 @@ class FactureControleur {
         }
     }
 
-    /**
-     * ✅ MÉTHODE OBSOLÈTE: Met à jour l'état des factures en retard de paiement
-     * Cette méthode n'est plus utilisée car l'état "Retard" est calculé dynamiquement côté client
-     * 
-     * @param PDO $conn La connexion à la base de données
-     * @param int $delaiPaiement Délai de paiement en jours (par défaut 30)
-     * @return array Résultat avec un message d'information
-     * @deprecated L'état "Retard" est maintenant calculé dynamiquement côté client
-     */
-    public static function mettreAJourFacturesEnRetard($conn, $delaiPaiement = 30) {
-        error_log("⚠️ mettreAJourFacturesEnRetard() appelée - Cette méthode est obsolète (état Retard calculé côté client)");
-        
-        return [
-            'facturesModifiees' => 0,
-            'listeFactures' => [],
-            'message' => 'Les retards sont calculés automatiquement côté client, aucune mise à jour nécessaire'
-        ];
-    }
-
+    
     // ==================================================================================
     // MÉTHODES UTILITAIRES PRIVÉES
     // ==================================================================================

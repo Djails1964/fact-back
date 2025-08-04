@@ -189,6 +189,7 @@ try {
                 'annee' => isset($_GET['annee']) ? intval($_GET['annee']) : null,
                 'mois' => isset($_GET['mois']) ? intval($_GET['mois']) : null,
                 'methode' => isset($_GET['methode']) ? $_GET['methode'] : null,
+                'statut' => isset($_GET['statut']) ? $_GET['statut'] : null,
                 'client_id' => isset($_GET['client_id']) ? intval($_GET['client_id']) : null,
                 'facture_id' => isset($_GET['facture_id']) ? intval($_GET['facture_id']) : null,
                 'page' => $page,
@@ -280,19 +281,24 @@ try {
             // Vérifier les droits de modification (admin ou gestionnaire)
             if ($userRole !== 'admin' && $userRole !== 'gestionnaire') {
                 error_log("paiement-api - Droits insuffisants pour DELETE - User: $userId, Role: $userRole");
-                throw new Exception('Droits administrateur ou gestionnaire requis pour supprimer des paiements', 403);
+                throw new Exception('Droits administrateur ou gestionnaire requis pour annuler des paiements', 403);
             }
             
-            // Supprimer un paiement
+            // ✅ MODIFIÉ: Annuler un paiement au lieu de le supprimer
             if (!isset($_GET['id'])) {
                 throw new Exception('ID paiement manquant');
             }
 
+            // Récupérer le motif d'annulation depuis le body de la requête
+            $rawData = file_get_contents("php://input");
+            $data = json_decode($rawData, true);
+            $motifAnnulation = $data['motif_annulation'] ?? 'Annulation demandée par l\'utilisateur';
+
             if (is_dev_mode()) {
-                error_log("paiement-api - DELETE paiement ID: " . $_GET['id'] . " (user: $userId)");
+                error_log("paiement-api - CANCEL paiement ID: " . $_GET['id'] . " (motif: $motifAnnulation) (user: $userId)");
             }
             
-            $resultat = $servicePaiement->supprimerPaiement($_GET['id']);
+            $resultat = $servicePaiement->annulerPaiement($_GET['id'], $motifAnnulation);
             echo json_encode($resultat);
             break;
             

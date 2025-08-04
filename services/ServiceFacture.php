@@ -1,22 +1,35 @@
 <?php
-// ServiceFacture.php
-
-require_once 'FactureControleur.php';
-require_once realpath(__DIR__ . '/controllers/ParametreControleur.php');
-require_once realpath(__DIR__ . '/services/ServiceParametre.php');
-require_once realpath(__DIR__ . '/controllers/PaiementControleur.php');
-require_once 'PDFGeneratorFactory.php';
-require_once 'ServiceTarif.php';
-require_once 'EmailService.php';
-require_once __DIR__ . '/utils/helpers.php';
+/**
+ * ServiceFacture.php - Version avec logging intégré et constantes
+ */
+require_once realpath(__DIR__ . '/../controllers/FactureControleur.php');
+require_once realpath(__DIR__ . '/ServiceParametre.php');
+require_once realpath(__DIR__ . '/ActivityLogger.php'); // ✅ AJOUT
+require_once realpath(__DIR__ . '/../constants/ActivityLogsConstants.php'); // ✅ AJOUT
+require_once realpath(__DIR__ . '/../PDFGeneratorFactory.php');
+require_once realpath(__DIR__ . '/../ServiceTarif.php');
+require_once realpath(__DIR__ . '/../EmailService.php');
+require_once realpath(__DIR__ . '/../utils/helpers.php');
 
 class ServiceFacture {
     private $conn;
     private $serviceParametre;
+    private $logger; // ✅ AJOUT
     
     public function __construct($conn) {
         $this->conn = $conn;
         $this->serviceParametre = new ServiceParametre($conn);
+        $this->logger = new ActivityLogger($conn); // ✅ AJOUT
+    }
+    
+    /**
+     * ✅ NOUVEAU: Récupère les informations utilisateur depuis la session
+     */
+    private function getCurrentUser() {
+        return [
+            'id' => $_SESSION['user_id'] ?? null,
+            'name' => $_SESSION['user_name'] ?? 'Système'
+        ];
     }
     
     /**
@@ -25,6 +38,8 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function creerFacture($data) {
+        $user = $this->getCurrentUser();
+        
         try {
             // Démarrer une transaction globale
             $this->conn->beginTransaction();
@@ -35,6 +50,26 @@ class ServiceFacture {
             if (!$resultatFacture['success']) {
                throw new Exception($resultatFacture['message']);
             }
+            
+            // ✅ LOGGING: Création de facture
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_FACTURE_CREATE,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $resultatFacture['factureId'],
+                'description' => "Création de la facture #{$resultatFacture['numeroFacture']} pour le client {$data['client_nom']}",
+                'details' => [
+                    'facture_id' => $resultatFacture['factureId'],
+                    'numero_facture' => $resultatFacture['numeroFacture'],
+                    'client_id' => $data['clientId'] ?? null,
+                    'client_nom' => $data['client_nom'] ?? null,
+                    'montant_total' => $data['montantTotal'] ?? null,
+                    'date_facture' => $data['dateFacture'] ?? null,
+                    'nb_lignes' => isset($data['lignes']) ? count($data['lignes']) : 0
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_INFO
+            ]);
             
             // La mise à jour du paramètre est maintenant gérée directement dans ajouterFacture
             
@@ -51,6 +86,21 @@ class ServiceFacture {
                 $this->conn->rollBack();
             }
             
+            // ✅ LOGGING: Erreur de création
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'description' => "Échec de création d'une facture",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'client_id' => $data['clientId'] ?? null,
+                    'montant_total' => $data['montantTotal'] ?? null
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
+            
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la création de la facture: ' . $e->getMessage()
@@ -65,7 +115,12 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function modifierFacture($id, $data) {
+        $user = $this->getCurrentUser();
+        
         try {
+            // Récupérer les données actuelles pour comparaison
+            $factureActuelle = FactureControleur::getFactureParId($this->conn, $id);
+            
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
@@ -75,6 +130,23 @@ class ServiceFacture {
             if (!$resultat['success']) {
                 throw new Exception($resultat['message']);
             }
+            
+            // ✅ LOGGING: Modification de facture
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_FACTURE_UPDATE,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Modification de la facture #{$factureActuelle['numero_facture']} ({$factureActuelle['prenom']} {$factureActuelle['nom']})",
+                'details' => [
+                    'facture_id' => $id,
+                    'numero_facture' => $factureActuelle['numero_facture'],
+                    'client_nom' => "{$factureActuelle['prenom']} {$factureActuelle['nom']}",
+                    'modifications' => $this->calculateFactureChanges($factureActuelle, $data)
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_INFO
+            ]);
             
             // Valider la transaction si elle est toujours active
             if ($this->conn->inTransaction()) {
@@ -88,6 +160,22 @@ class ServiceFacture {
             if ($this->conn->inTransaction()) {
                 $this->conn->rollBack();
             }
+            
+            // ✅ LOGGING: Erreur de modification
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Échec de modification de la facture ID {$id}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $id,
+                    'attempted_changes' => $data
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
             
             return [
                 'success' => false,
@@ -104,6 +192,8 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function changerEtatFacture($id, $nouvelEtat) {
+        $user = $this->getCurrentUser();
+        
         try {
             // ✅ PROTECTION: Empêcher la persistance de l'état "Retard" au niveau service
             if ($nouvelEtat === 'Retard') {
@@ -115,38 +205,41 @@ class ServiceFacture {
                 ];
             }
             
+            // Récupérer les infos de la facture avant changement
+            $factureActuelle = FactureControleur::getFactureParId($this->conn, $id);
+            
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
             // Vérifier que l'état est valide (sans "Retard")
-            $etatsValides = ['Payée', 'Éditée', 'En attente', 'Annulée', 'Envoyée'];
+            $etatsValides = ['Payée', 'Éditée', 'En attente', 'Annulée', 'Envoyée', 'Partiellement payée'];
             if (!in_array($nouvelEtat, $etatsValides)) {
                 throw new Exception('État non valide');
             }
             
-            // Récupérer la date de paiement depuis POST si non fournie en paramètre
-            if ($nouvelEtat === 'Payée' && !isset($datePaiement) && isset($_POST['datePaiement'])) {
-                $datePaiement = $_POST['datePaiement'];
-            }
-            
+
             // Appeler la méthode du contrôleur avec les paramètres appropriés
             $resultat = FactureControleur::changerEtatFacture($this->conn, $id, $nouvelEtat);
             
-            // Si l'état est passé à "Payée", mettre à jour le montant payé si nécessaire
-            if ($nouvelEtat === 'Payée') {
-                // Vérifier si le montant payé est déjà défini
-                $facture = FactureControleur::getFactureParId($this->conn, $id);
-                
-                if (empty($facture['montant_paye']) || $facture['montant_paye'] == 0) {
-                    // Si non, définir le montant payé au montant total
-                    $montantPaye = $facture['montant_total'];
-                    
-                    FactureControleur::enregistrerPaiement($this->conn, $id, [
-                        'datePaiement' => $datePaiement ?? date('Y-m-d'),
-                        'montantPaye' => $montantPaye
-                    ]);
-                }
-            }
+            // ✅ LOGGING: Changement d'état
+            $actionType = $this->getStateChangeAction($nouvelEtat);
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => $actionType,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Changement d'état de la facture #{$factureActuelle['numero_facture']} : {$factureActuelle['etat']} → {$nouvelEtat}",
+                'details' => [
+                    'facture_id' => $id,
+                    'numero_facture' => $factureActuelle['numero_facture'],
+                    'client_nom' => "{$factureActuelle['prenom']} {$factureActuelle['nom']}",
+                    'ancien_etat' => $factureActuelle['etat'],
+                    'nouvel_etat' => $nouvelEtat,
+                    'date_changement' => date('Y-m-d H:i:s')
+                ],
+                'severity' => $this->getStateChangeSeverity($nouvelEtat)
+            ]);
             
             // Valider la transaction si elle est toujours active
             if ($this->conn->inTransaction()) {
@@ -161,6 +254,22 @@ class ServiceFacture {
                 $this->conn->rollBack();
             }
 
+            // ✅ LOGGING: Erreur de changement d'état
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Échec de changement d'état de la facture ID {$id} vers '{$nouvelEtat}'",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $id,
+                    'nouvel_etat_demande' => $nouvelEtat
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
+
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la modification de l\'état de la facture: ' . $e->getMessage()
@@ -169,36 +278,63 @@ class ServiceFacture {
     }
 
     /**
-     * Récupération d'une facture avec toutes ses informations associées
-     * @param int $id ID de la facture
-     * @return array Informations de la facture
-     */
-    public function getFactureComplete($id) {
-        try {
-            $facture = FactureControleur::getFactureParId($this->conn, $id);
-
-            error_log("Facture-api - GetFactureComplete - Facture: " . json_encode($facture)); // Log pour le débogage  
-            
-            return [
-                'success' => true,
-                'facture' => $facture
-            ];
-            
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération de la facture: ' . $e->getMessage()
-            ];
-        }
-    }
-    
-    /**
      * Suppression d'une facture
      * @param int $id ID de la facture
      * @return array Résultat de l'opération
      */
     public function supprimerFacture($id) {
-        return FactureControleur::supprimerFacture($this->conn, $id);
+        $user = $this->getCurrentUser();
+        
+        try {
+            // Récupérer les infos de la facture avant suppression
+            $factureInfo = FactureControleur::getFactureParId($this->conn, $id);
+            
+            $resultat = FactureControleur::supprimerFacture($this->conn, $id);
+            
+            if ($resultat['success']) {
+                // ✅ LOGGING: Suppression de facture
+                $this->logger->log([
+                    'user_id' => $user['id'],
+                    'user_name' => $user['name'],
+                    'action_type' => ActivityLogsConstants::ACTION_FACTURE_DELETE,
+                    'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                    'entity_id' => $id,
+                    'description' => "Suppression de la facture #{$factureInfo['numero_facture']} ({$factureInfo['prenom']} {$factureInfo['nom']})",
+                    'details' => [
+                        'facture_id' => $id,
+                        'numero_facture' => $factureInfo['numero_facture'],
+                        'client_nom' => "{$factureInfo['prenom']} {$factureInfo['nom']}",
+                        'montant_total' => $factureInfo['montant_total'],
+                        'etat' => $factureInfo['etat'],
+                        'date_facture' => $factureInfo['date_facture']
+                    ],
+                    'severity' => ActivityLogsConstants::SEVERITY_CRITICAL
+                ]);
+            }
+            
+            return $resultat;
+            
+        } catch (Exception $e) {
+            // ✅ LOGGING: Erreur de suppression
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Échec de suppression de la facture ID {$id}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $id
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la suppression: ' . $e->getMessage()
+            ];
+        }
     }
 
     /**
@@ -209,19 +345,20 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function imprimerFacture($factureId, $options = []) {
+        $user = $this->getCurrentUser();
+        
         try {
-            
             // Récupérer la facture complète
-            error_log("Début de l'impression de la facture ID: $factureId"); // Log pour le débogage
+            error_log("Début de l'impression de la facture ID: $factureId");
             $resultat = $this->getFactureComplete($factureId);
-            error_log("Facture récupérée: " . json_encode($resultat)); // Log pour le débogage
+            error_log("Facture récupérée: " . json_encode($resultat));
             
             if (!$resultat['success']) {
                 throw new Exception($resultat['message']);
             }
             
             $facture = $resultat['facture'];
-            error_log("Facture complète: " . json_encode($facture)); // Log pour le débogage
+            error_log("Facture complète: " . json_encode($facture));
 
             // Enrichir les données de chaque ligne avec les informations de l'unité correspondante
             if (isset($facture['lignes']) && is_array($facture['lignes'])) {
@@ -229,9 +366,9 @@ class ServiceFacture {
                 $serviceTarif = new ServiceTarif($this->conn);
                 
                 // Récupérer toutes les unités en une seule requête
-                error_log("Récupération des unités pour enrichissement des lignes de facture"); // Log pour le débogage
+                error_log("Récupération des unités pour enrichissement des lignes de facture");
                 $unitesResult = $serviceTarif->getUnites();
-                error_log("Résultat de la récupération des unités: " . json_encode($unitesResult)); // Log pour le débogage
+                error_log("Résultat de la récupération des unités: " . json_encode($unitesResult));
                 $unites = [];
                 
                 if ($unitesResult['success']) {
@@ -252,30 +389,30 @@ class ServiceFacture {
                 }
             }
 
-            error_log("Facture après enrichissement des lignes: " . json_encode($facture)); // Log pour le débogage
+            error_log("Facture après enrichissement des lignes: " . json_encode($facture));
             
             // Récupérer l'année de la facture
             $annee = date('Y', strtotime($facture['date_facture']));
             
             // Récupérer le délai de paiement
             $delaiPaiement = isset($options['delaiPaiement']) ? $options['delaiPaiement'] : null;
-            error_log("Délai de paiement spécifié dans les options: " . ($delaiPaiement ? $delaiPaiement : 'Aucun')); // Log pour le débogage
+            error_log("Délai de paiement spécifié dans les options: " . ($delaiPaiement ? $delaiPaiement : 'Aucun'));
             // Si le délai de paiement n'est pas spécifié dans les options, le récupérer des paramètres
             if (!$delaiPaiement) {
-                error_log("Récupération du délai de paiement via le service Parametre"); // Log pour le débogage
+                error_log("Récupération du délai de paiement via le service Parametre");
                 $delaiPaiement = $this->serviceParametre->getParametre('Delai Paiement', 'Facture', 'Paiement')['parametre']['Valeur_parametre'] ?? 30;
             }
-            error_log("Délai de paiement récupéré: $delaiPaiement jours"); // Log pour le débogage
+            error_log("Délai de paiement récupéré: $delaiPaiement jours");
 
             // Récupérer le flag pour imprimer ou non la ristourne.
             $printRistourne = isset($options['printRistourne']) ? $options['printRistourne'] : null;
             // Si l'indication d'imprimer la ristourne n'est pas spécifiée dans les options, le récupérer des paramètres
-            error_log("Vérification du flag pour imprimer la ristourne"); // Log pour le débogage
+            error_log("Vérification du flag pour imprimer la ristourne");
             if (!$printRistourne) {
-                error_log("Récupération du paramètre 'Imprimer ristourne' via le service Parametre"); // Log pour le débogage
+                error_log("Récupération du paramètre 'Imprimer ristourne' via le service Parametre");
                 $printRistourne = (mb_strtoupper($this->serviceParametre->getParametre('Imprimer ristourne', 'Facture', 'Ristourne')['parametre']['Valeur_parametre']) === 'O');
             }
-            error_log("Flag pour imprimer la ristourne: " . ($printRistourne ? 'Oui' : 'Non')); // Log pour le débogage
+            error_log("Flag pour imprimer la ristourne: " . ($printRistourne ? 'Oui' : 'Non'));
 
             // Récupérer les paramètres bancaires
             $relationsBancaires = [];
@@ -285,9 +422,9 @@ class ServiceFacture {
                 $relationsBancaires = $options['relationsBancaires'];
             } else {
                 // Utiliser le nouveau système de paramètres avec groupe
-                error_log("Récupération des paramètres bancaires via le service Parametre"); // Log pour le débogage
+                error_log("Récupération des paramètres bancaires via le service Parametre");
                 $relationsBancairesResult = $this->serviceParametre->getParametresParGroupe('Relations Bancaires');
-                error_log("Résultat de la récupération des paramètres bancaires: " . json_encode($relationsBancairesResult)); // Log pour le débogage
+                error_log("Résultat de la récupération des paramètres bancaires: " . json_encode($relationsBancairesResult));
 
                 if ($relationsBancairesResult['success'] && isset($relationsBancairesResult['parametres']['Relations Bancaires'])) {
                     // Transformer les résultats pour faciliter l'accès
@@ -309,9 +446,9 @@ class ServiceFacture {
                 $signature = $options['signature'];
             } else {
                 // Utiliser le nouveau système de paramètres avec groupe
-                error_log("Récupération des paramètres de signature via le service Parametre"); // Log pour le débogage
+                error_log("Récupération des paramètres de signature via le service Parametre");
                 $signatureResult = $this->serviceParametre->getParametres('Facture','Signature');
-                error_log("Résultat de la récupération des paramètres de signature: " . json_encode($signatureResult)); // Log pour le débogage
+                error_log("Résultat de la récupération des paramètres de signature: " . json_encode($signatureResult));
                 
                 if ($signatureResult['success'] && isset($signatureResult['parametres']['Facture'])) {
                     // Transformer les résultats pour faciliter l'accès
@@ -349,10 +486,10 @@ class ServiceFacture {
             if (!$outputDir) {
                 // Utiliser le nouveau système de paramètres avec groupe
                 // $outputDir = $this->serviceParametre->getParametre('outputDir', 'Facture')['parametre']['Valeur_parametre'] ?? 'storage/invoices';
-                error_log("Récupération du dossier de sortie pour le PDF via le service Parametre"); // Log pour le débogage
+                error_log("Récupération du dossier de sortie pour le PDF via le service Parametre");
                 $outputDir = factures_path(null, $this->serviceParametre);
             }
-            error_log("Dossier de sortie pour le PDF: $outputDir"); // Log pour le débogage
+            error_log("Dossier de sortie pour le PDF: $outputDir");
             
             // Créer le dossier de sortie s'il n'existe pas
             if (!is_dir($outputDir)) {
@@ -378,17 +515,17 @@ class ServiceFacture {
             
             try {
                 // Créer l'instance appropriée
-                error_log("Création du générateur PDF avec le moteur: " . $pdfEngine); // Log pour le débogage
+                error_log("Création du générateur PDF avec le moteur: " . $pdfEngine);
                 if (!class_exists('PDFGeneratorFactory')) {
                     throw new Exception('La classe PDFGeneratorFactory n\'existe pas');
                 }
                 $pdfGenerator = PDFGeneratorFactory::create($pdfEngine);
-                error_log("Générateur PDF créé avec succès: " . get_class($pdfGenerator)); // Log pour le débogage
+                error_log("Générateur PDF créé avec succès: " . get_class($pdfGenerator));
                 
                 // Utiliser le générateur
-                error_log("Génération du PDF pour la facture ID: $factureId"); // Log pour le débogage
+                error_log("Génération du PDF pour la facture ID: $factureId");
                 $result = $pdfGenerator->genererPDF($facture, $pdfFilename, null, $relationsBancaires, $delaiPaiement, $signature, $printRistourne);
-                error_log("Résultat de la génération du PDF: " . json_encode($result)); // Log pour le débogage
+                error_log("Résultat de la génération du PDF: " . json_encode($result));
                 if (!$result) {
                     throw new Exception('Erreur lors de la génération du PDF');
                 }
@@ -398,7 +535,7 @@ class ServiceFacture {
                 echo "Erreur lors de la création du générateur PDF: " . $e->getMessage();
             }            
 
-            error_log("Résultat de la génération du PDF: " . json_encode($result)); // Log pour le débogage
+            error_log("Résultat de la génération du PDF: " . json_encode($result));
             if (!$result) {
                 throw new Exception('Erreur lors de la génération du PDF');
             }
@@ -414,6 +551,25 @@ class ServiceFacture {
             // Construire l'URL du PDF
             $pdfUrl = factures_url($pdfFilename, $this->serviceParametre);
 
+            // ✅ LOGGING: Impression de facture
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_FACTURE_PRINT,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $factureId,
+                'description' => "Impression de la facture #{$facture['numero_facture']} ({$facture['prenom']} {$facture['nom']})",
+                'details' => [
+                    'facture_id' => $factureId,
+                    'numero_facture' => $facture['numero_facture'],
+                    'client_nom' => "{$facture['prenom']} {$facture['nom']}",
+                    'pdf_filename' => $pdfFilename,
+                    'delai_paiement' => $delaiPaiement,
+                    'print_ristourne' => $printRistourne
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_INFO
+            ]);
+
             // Vérifier l'état actuel de la facture
             if ($facture['etat'] === 'En attente') {
                 // Changer l'état à "Éditée"
@@ -421,10 +577,10 @@ class ServiceFacture {
                 try {
                     $resultatEtat = $this->changerEtatFacture($factureId, 'Éditée');
                     
-                    if (!$resultatEtat['success']) {
-                        // L'état n'a pas pu être mis à jour mais l'email a été envoyé
+                   if (!$resultatEtat['success']) {
+                        // L'état n'a pas pu être mis à jour mais le PDF a été généré
                         return [
-                            'success' => true, // L'opération principale (envoi email) a réussi
+                            'success' => true, // L'opération principale (génération PDF) a réussi
                             'message' => 'PDF généré avec succès, mais l\'état n\'a pas pu être mis à jour: ' . $resultatEtat['message'],
                             'warning' => true, // Indicateur qu'il y a un avertissement
                             'pdfUrl' => $pdfUrl,
@@ -447,8 +603,8 @@ class ServiceFacture {
                     
                     // Le PDF a été produit mais l'état n'a pas pu être mis à jour
                     return [
-                        'success' => true, // L'opération principale (envoi email) a réussi
-                        'message' => 'PDF généré avec succès, mais l\'état n\'a pas pu être mis à jour: ' . $resultatEtat['message'],
+                        'success' => true, // L'opération principale (génération PDF) a réussi
+                        'message' => 'PDF généré avec succès, mais l\'état n\'a pas pu être mis à jour: ' . $e->getMessage(),
                         'warning' => true, // Indicateur qu'il y a un avertissement
                         'pdfUrl' => $pdfUrl,
                         'etatMisAJour' => false
@@ -464,6 +620,22 @@ class ServiceFacture {
             }
             
         } catch (Exception $e) {
+            // ✅ LOGGING: Erreur d'impression
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $factureId,
+                'description' => "Échec d'impression de la facture ID {$factureId}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $factureId,
+                    'options' => $options
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
+            
             return [
                 'success' => false,
                 'message' => 'Erreur lors de l\'impression de la facture: ' . $e->getMessage()
@@ -480,6 +652,8 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function envoyerFactureParEmail($factureId, $emailData) {
+        $user = $this->getCurrentUser();
+        
         try {
             // Récupérer les détails de la facture
             $facture = $this->getFactureComplete($factureId);
@@ -576,6 +750,27 @@ class ServiceFacture {
                         $etatMisAJour = false;
                     }
                     
+                    // ✅ LOGGING: Envoi de facture (mode client)
+                    $this->logger->log([
+                        'user_id' => $user['id'],
+                        'user_name' => $user['name'],
+                        'action_type' => ActivityLogsConstants::ACTION_FACTURE_SEND,
+                        'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                        'entity_id' => $factureId,
+                        'description' => "Préparation d'envoi de la facture #{$factureDetails['numero_facture']} à {$emailData['to']} (mode client)",
+                        'details' => [
+                            'facture_id' => $factureId,
+                            'numero_facture' => $factureDetails['numero_facture'],
+                            'client_nom' => "{$factureDetails['prenom']} {$factureDetails['nom']}",
+                            'destinataire' => $emailData['to'],
+                            'subject' => $emailData['subject'],
+                            'method' => $result['method'],
+                            'pdf_attached' => $pdfAttached,
+                            'etat_mis_a_jour' => $etatMisAJour
+                        ],
+                        'severity' => ActivityLogsConstants::SEVERITY_INFO
+                    ]);
+                    
                     // ✅ CORRECTION PRINCIPALE: Retourner TOUTES les données du service EmailService
                     $responseData = [
                         'success' => true,
@@ -629,6 +824,27 @@ class ServiceFacture {
                     $etatMisAJour = false;
                 }
                 
+                // ✅ LOGGING: Envoi de facture (direct)
+                $this->logger->log([
+                    'user_id' => $user['id'],
+                    'user_name' => $user['name'],
+                    'action_type' => ActivityLogsConstants::ACTION_FACTURE_SEND,
+                    'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                    'entity_id' => $factureId,
+                    'description' => "Envoi de la facture #{$factureDetails['numero_facture']} à {$emailData['to']}",
+                    'details' => [
+                        'facture_id' => $factureId,
+                        'numero_facture' => $factureDetails['numero_facture'],
+                        'client_nom' => "{$factureDetails['prenom']} {$factureDetails['nom']}",
+                        'destinataire' => $emailData['to'],
+                        'subject' => $emailData['subject'],
+                        'method' => 'direct',
+                        'pdf_attached' => $pdfAttached,
+                        'etat_mis_a_jour' => $etatMisAJour
+                    ],
+                    'severity' => ActivityLogsConstants::SEVERITY_INFO
+                ]);
+                
                 return [
                     'success' => true,
                     'message' => 'Facture envoyée par email avec succès',
@@ -642,6 +858,24 @@ class ServiceFacture {
             
         } catch (Exception $e) {
             error_log("❌ Erreur ServiceFacture::envoyerFactureParEmail: " . $e->getMessage());
+            
+            // ✅ LOGGING: Erreur d'envoi
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $factureId,
+                'description' => "Échec d'envoi de la facture ID {$factureId} par email",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $factureId,
+                    'destinataire' => $emailData['to'] ?? null,
+                    'subject' => $emailData['subject'] ?? null
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR
+            ]);
+            
             return [
                 'success' => false,
                 'message' => $e->getMessage()
@@ -650,10 +884,47 @@ class ServiceFacture {
     }
 
     /**
-     * Récupère l'URL de visualisation d'une facture
-     * 
-     * @param int $factureId ID de la facture
-     * @return array Résultat avec l'URL du PDF
+     * ✅ PAS DE LOGGING: Récupération d'une facture avec toutes ses informations associées
+     * @param int $id ID de la facture
+     * @return array Informations de la facture
+     */
+    public function getFactureComplete($id) {
+        try {
+            $facture = FactureControleur::getFactureParId($this->conn, $id);
+
+            error_log("Facture-api - GetFactureComplete - Facture: " . json_encode($facture));
+            
+            return [
+                'success' => true,
+                'facture' => $facture
+            ];
+            
+        } catch (Exception $e) {
+            // ✅ LOGGING: Erreur uniquement
+            $user = $this->getCurrentUser();
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $id,
+                'description' => "Erreur lors de la récupération de la facture ID {$id}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $id
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_WARNING
+            ]);
+            
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération de la facture: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * ✅ PAS DE LOGGING: Récupère l'URL de visualisation d'une facture
      */
     public function getFactureUrl($factureId) {
         try {
@@ -719,6 +990,22 @@ class ServiceFacture {
         } catch (Exception $e) {
             error_log("Erreur lors de la récupération de l'URL de la facture: " . $e->getMessage());
             
+            // ✅ LOGGING: Erreur uniquement
+            $user = $this->getCurrentUser();
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id' => $factureId,
+                'description' => "Erreur lors de la récupération de l'URL de la facture ID {$factureId}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'facture_id' => $factureId
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_WARNING
+            ]);
+            
             return [
                 'success' => false,
                 'message' => $e->getMessage()
@@ -726,147 +1013,13 @@ class ServiceFacture {
         }
     }
 
-    /**
-     * Enregistre un paiement avec le nouveau système
-     * @param int $id ID de la facture
-     * @param array $data Données du paiement
-     * @return array Résultat de l'opération
-     */
-    public function enregistrerPaiement($id, $data) {
-        try {
-            // Démarrer une transaction
-            $this->conn->beginTransaction();
-            
-            // Utiliser le nouveau contrôleur
-            $resultat = PaiementControleur::enregistrerPaiement($this->conn, $id, $data);
-            
-            if (!$resultat['success']) {
-                throw new Exception($resultat['message']);
-            }
-            
-            // Valider la transaction
-            $this->conn->commit();
-            
-            return $resultat;
-            
-        } catch (Exception $e) {
-            // Annuler la transaction en cas d'erreur
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-            
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de l\'enregistrement du paiement: ' . $e->getMessage()
-            ];
-        }
-    }
+    // ✅ PAS DE LOGGING pour les méthodes de consultation :
+    // - listerFactures()
+    // - getStatistiques()
+    // - getProchainNumeroFacture()
 
     /**
-     * Récupère l'historique des paiements d'une facture
-     * @param int $factureId ID de la facture
-     * @return array Historique des paiements
-     */
-    public function getHistoriquePaiements($factureId) {
-        try {
-            return PaiementControleur::getHistoriquePaiements($this->conn, $factureId);
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération de l\'historique: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Supprime un paiement
-     * @param int $paiementId ID du paiement
-     * @return array Résultat de l'opération
-     */
-    public function supprimerPaiement($paiementId) {
-        try {
-            // Démarrer une transaction
-            $this->conn->beginTransaction();
-            
-            $resultat = PaiementControleur::supprimerPaiement($this->conn, $paiementId);
-            
-            if (!$resultat['success']) {
-                throw new Exception($resultat['message']);
-            }
-            
-            // Valider la transaction
-            $this->conn->commit();
-            
-            return $resultat;
-            
-        } catch (Exception $e) {
-            // Annuler la transaction en cas d'erreur
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-            
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la suppression du paiement: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Récupère les statistiques de paiement d'une facture
-     * @param int $factureId ID de la facture
-     * @return array Statistiques
-     */
-    public function getStatistiquesPaiement($factureId) {
-        try {
-            return PaiementControleur::getStatistiquesPaiement($this->conn, $factureId);
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des statistiques: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Modifie un paiement existant
-     * @param int $paiementId ID du paiement
-     * @param array $data Nouvelles données
-     * @return array Résultat de l'opération
-     */
-    public function modifierPaiement($paiementId, $data) {
-        try {
-            // Démarrer une transaction
-            $this->conn->beginTransaction();
-            
-            $resultat = PaiementControleur::modifierPaiement($this->conn, $paiementId, $data);
-            
-            if (!$resultat['success']) {
-                throw new Exception($resultat['message']);
-            }
-            
-            // Valider la transaction
-            $this->conn->commit();
-            
-            return $resultat;
-            
-        } catch (Exception $e) {
-            // Annuler la transaction en cas d'erreur
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-            }
-            
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la modification du paiement: ' . $e->getMessage()
-            ];
-        }
-    }
-    
-    /**
-     * Récupère toutes les factures avec pagination et filtrage optionnel
-     * @param array $options Options de filtrage et pagination
-     * @return array Liste des factures
+     * ✅ PAS DE LOGGING: Récupère toutes les factures avec pagination et filtrage optionnel
      */
     public function listerFactures($options = []) {
         try {
@@ -882,6 +1035,21 @@ class ServiceFacture {
             ];
             
         } catch (Exception $e) {
+            // ✅ LOGGING: Erreur uniquement
+            $user = $this->getCurrentUser();
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'description' => "Erreur lors de la récupération de la liste des factures",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'options' => $options
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_WARNING
+            ]);
+            
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la récupération des factures: ' . $e->getMessage()
@@ -890,9 +1058,7 @@ class ServiceFacture {
     }
     
     /**
-     * Récupère les statistiques complètes des factures (avec données mensuelles et distribution)
-     * @param int|null $annee Année pour filtrer les statistiques
-     * @return array Statistiques complètes
+     * ✅ PAS DE LOGGING: Récupère les statistiques complètes des factures
      */
     public function getStatistiques($annee = null) {
         try {
@@ -908,6 +1074,22 @@ class ServiceFacture {
             
         } catch (Exception $e) {
             error_log("Erreur dans ServiceFacture::getStatistiques: " . $e->getMessage());
+            
+            // ✅ LOGGING: Erreur uniquement
+            $user = $this->getCurrentUser();
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'description' => "Erreur lors de la récupération des statistiques des factures",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'annee' => $annee
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_WARNING
+            ]);
+            
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la récupération des statistiques: ' . $e->getMessage()
@@ -916,27 +1098,7 @@ class ServiceFacture {
     }
 
     /**
-     * ✅ MÉTHODE OBSOLÈTE: Met à jour les factures en retard de paiement
-     * Cette méthode n'est plus utilisée car l'état "Retard" est calculé dynamiquement côté client
-     * 
-     * @return array Résultat avec un message d'information
-     * @deprecated L'état "Retard" est maintenant calculé dynamiquement côté client
-     */
-    public function mettreAJourFacturesEnRetard() {
-        error_log("⚠️ ServiceFacture::mettreAJourFacturesEnRetard() appelée - Cette méthode est obsolète (état Retard calculé côté client)");
-        
-        return [
-            'success' => true,
-            'message' => 'Les retards sont calculés automatiquement côté client, aucune mise à jour nécessaire',
-            'facturesModifiees' => 0,
-            'listeFactures' => []
-        ];
-    }
-
-    /**
-     * Récupère les paramètres pour une année donnée
-     * @param int $annee Année pour laquelle récupérer les paramètres
-     * @return array Paramètres
+     * ✅ PAS DE LOGGING: Récupère les paramètres pour une année donnée (consultation)
      */
     public function getProchainNumeroFacture($annee) {
         try {
@@ -944,6 +1106,21 @@ class ServiceFacture {
             return $this->serviceParametre->getParametre('Prochain Numéro Facture', 'Facture', 'Numéro', null, $annee) ?? null;
 
         } catch (Exception $e) {
+            // ✅ LOGGING: Erreur uniquement
+            $user = $this->getCurrentUser();
+            $this->logger->log([
+                'user_id' => $user['id'],
+                'user_name' => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'description' => "Erreur lors de la récupération du prochain numéro de facture pour l'année {$annee}",
+                'details' => [
+                    'error_message' => $e->getMessage(),
+                    'annee' => $annee
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_WARNING
+            ]);
+            
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la récupération des paramètres: ' . $e->getMessage()
@@ -951,5 +1128,75 @@ class ServiceFacture {
         }
     }
 
+    // ==================== MÉTHODES UTILITAIRES PRIVÉES ====================
+
+    /**
+     * ✅ NOUVEAU: Calcule les changements entre l'ancienne et la nouvelle facture
+     */
+    private function calculateFactureChanges($factureActuelle, $newData) {
+        $changes = [];
+        
+        // Champs à surveiller pour les changements
+        $fieldsToCheck = [
+            'montantTotal' => 'montant_total',
+            'dateFacture' => 'date_facture',
+            'dateEcheance' => 'date_echeance',
+            'commentaire' => 'commentaire',
+            'clientId' => 'id_client'
+        ];
+        
+        foreach ($fieldsToCheck as $newField => $oldField) {
+            if (isset($newData[$newField]) && isset($factureActuelle[$oldField])) {
+                if ($newData[$newField] != $factureActuelle[$oldField]) {
+                    $changes[$newField] = [
+                        'ancien' => $factureActuelle[$oldField],
+                        'nouveau' => $newData[$newField]
+                    ];
+                }
+            }
+        }
+        
+        // Vérifier les changements de lignes
+        if (isset($newData['lignes'])) {
+            $changes['lignes_modifiees'] = count($newData['lignes']);
+        }
+        
+        return $changes;
+    }
+
+    /**
+     * ✅ NOUVEAU: Détermine le type d'action pour un changement d'état
+     */
+    private function getStateChangeAction($nouvelEtat) {
+        switch ($nouvelEtat) {
+            case 'Payée':
+                return ActivityLogsConstants::ACTION_FACTURE_VALIDATE;
+            case 'Annulée':
+                return ActivityLogsConstants::ACTION_FACTURE_CANCEL;
+            case 'Envoyée':
+                return ActivityLogsConstants::ACTION_FACTURE_SEND;
+            case 'Éditée':
+            case 'En attente':
+            default:
+                return ActivityLogsConstants::ACTION_FACTURE_UPDATE;
+        }
+    }
+
+    /**
+     * ✅ NOUVEAU: Détermine la sévérité pour un changement d'état
+     */
+    private function getStateChangeSeverity($nouvelEtat) {
+        switch ($nouvelEtat) {
+            case 'Annulée':
+                return ActivityLogsConstants::SEVERITY_WARNING;
+            case 'Payée':
+                return ActivityLogsConstants::SEVERITY_INFO;
+            case 'Envoyée':
+            case 'Éditée':
+            case 'En attente':
+            default:
+                return ActivityLogsConstants::SEVERITY_INFO;
+        }
+    }
 }
 ?>
