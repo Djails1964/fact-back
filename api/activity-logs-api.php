@@ -50,7 +50,7 @@ try {
                 $filters = [];
                 
                 if (!empty($_GET['action_type'])) {
-                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_STRING);
+                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['severity']) && in_array($_GET['severity'], ['info', 'warning', 'error', 'critical'])) {
@@ -58,7 +58,7 @@ try {
                 }
                 
                 if (!empty($_GET['user_name'])) {
-                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_STRING);
+                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['date_from']) && DateTime::createFromFormat('Y-m-d', $_GET['date_from'])) {
@@ -74,7 +74,7 @@ try {
                 }
                 
                 if (!empty($_GET['entity_type'])) {
-                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_STRING);
+                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['entity_id']) && is_numeric($_GET['entity_id'])) {
@@ -92,7 +92,7 @@ try {
                 
                 // Récupérer les mêmes filtres que pour get_logs avec validation
                 if (!empty($_GET['action_type'])) {
-                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_STRING);
+                    $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['severity']) && in_array($_GET['severity'], ['info', 'warning', 'error', 'critical'])) {
@@ -100,7 +100,7 @@ try {
                 }
                 
                 if (!empty($_GET['user_name'])) {
-                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_STRING);
+                    $filters['user_name'] = filter_var($_GET['user_name'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['date_from']) && DateTime::createFromFormat('Y-m-d', $_GET['date_from'])) {
@@ -116,7 +116,7 @@ try {
                 }
                 
                 if (!empty($_GET['entity_type'])) {
-                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_STRING);
+                    $filters['entity_type'] = filter_var($_GET['entity_type'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 }
                 
                 if (!empty($_GET['entity_id']) && is_numeric($_GET['entity_id'])) {
@@ -199,7 +199,7 @@ try {
                 
             case 'entity_logs':
                 // ✅ NOUVEAU: Logs pour une entité spécifique - VIA SERVICE
-                $entityType = filter_var($_GET['entity_type'] ?? '', FILTER_SANITIZE_STRING);
+                $entityType = filter_var($_GET['entity_type'] ?? '', FILTER_SANITIZE_FULL_SPECIAL_CHARS);
                 $entityId = (int)($_GET['entity_id'] ?? 0);
                 $limit = min(100, max(5, (int)($_GET['limit'] ?? 20)));
                 
