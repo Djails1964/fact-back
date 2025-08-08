@@ -310,6 +310,7 @@ try {
             
             if (is_dev_mode()) {
                 error_log("facture-api - POST création nouvelle facture (user: $userId)");
+                error_log("facture-api - Données reçues pour création: " . json_encode($data));
             }
             
             $resultat = $serviceFacture->creerFacture($data);

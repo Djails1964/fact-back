@@ -44,8 +44,15 @@ class ServiceFacture {
             // Démarrer une transaction globale
             $this->conn->beginTransaction();
 
+            if (is_dev_mode()) {
+                error_log("ServiceFacture - creerFacture - Démarrage de la transaction pour création de facture");
+                error_log("ServiceFacture - creerFacture - Données de la facture: " . print_r($data, true));
+            }
             // Étape 1: Créer la facture
             $resultatFacture = FactureControleur::ajouterFacture($this->conn, $data);
+            if (is_dev_mode()) {
+                error_log("ServiceFacture - creerFacture - Résultat de l'ajout de facture: " . print_r($resultatFacture, true));
+            }
             
             if (!$resultatFacture['success']) {
                throw new Exception($resultatFacture['message']);
@@ -58,7 +65,7 @@ class ServiceFacture {
                 'action_type' => ActivityLogsConstants::ACTION_FACTURE_CREATE,
                 'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
                 'entity_id' => $resultatFacture['factureId'],
-                'description' => "Création de la facture #{$resultatFacture['numeroFacture']} pour le client {$data['client_nom']}",
+                'description' => "Création de la facture #{$resultatFacture['factureId']} pour le client {$data['client_nom']}",
                 'details' => [
                     'facture_id' => $resultatFacture['factureId'],
                     'numero_facture' => $resultatFacture['numeroFacture'],
@@ -506,7 +513,7 @@ class ServiceFacture {
             $pdfPath = $outputDir . '/' . $pdfFilename;
             
             // Utiliser le générateur de PDF
-            require_once 'PDFGeneratorFactory.php';
+            // require_once 'PDFGeneratorFactory.php';
         
             // Récupérer le type de générateur depuis la configuration ou un paramètre
             $pdfEngine = 'fpdi'; // ou 'tcpdf', selon votre préférence ou configuration

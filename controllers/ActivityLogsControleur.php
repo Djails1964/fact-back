@@ -211,6 +211,12 @@ class ActivityLogsControleur {
      * @return array Données nettoyées
      */
     private static function validateAndTruncateLogData($data) {
+
+        if (is_dev_mode()) { 
+            error_log("✅ ActivityLogsControleur::validateAndTruncateLogData - Validation des données de log");
+            error_log("✅ Données reçues: " . print_r($data, true));
+        }
+
         $clean = [];
         
         // user_id - doit être un entier ou null

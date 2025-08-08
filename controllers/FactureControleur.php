@@ -94,6 +94,10 @@ class FactureControleur {
      */
     public static function ajouterFacture($conn, $data) {
         // Validation des données
+        if (is_dev_mode()) {
+            error_log("Facturecontroleur - ajouterFacture - Démarrage de l'ajout de facture");
+            error_log("Facturecontroleur - ajouterFacture - Vérification des données de la facture: " . print_r($data, true));
+        }
         if (!isset($data['numeroFacture']) || !isset($data['dateFacture']) || 
             !isset($data['clientId']) || 
             !isset($data['lignes']) || !is_array($data['lignes'])) {
@@ -161,7 +165,8 @@ class FactureControleur {
             return [
                 'success' => true,
                 'message' => 'Facture créée avec succès',
-                'factureId' => $factureId
+                'factureId' => $factureId,
+                'numeroFacture' => $data['numeroFacture']
             ];
             
         } catch(PDOException $e) {
