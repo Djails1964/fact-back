@@ -81,12 +81,11 @@ class TarifControleur {
                 $isDefault
             ]);
             
-            $serviceId = $conn->lastInsertId();
+            $service_id = $conn->lastInsertId();
             
-            return $serviceId;
+            return $service_id;
         } catch (PDOException $e) {
             // Annuler la transaction en cas d'erreur
-            $conn->rollBack();
             error_log("Erreur lors de la création du service: " . $e->getMessage());
             throw new Exception('Erreur lors de la création du service: ' . $e->getMessage());
         }
@@ -144,7 +143,6 @@ class TarifControleur {
             }
             
             if (empty($setFields)) {
-                $conn->rollBack();
                 return false;
             }
             
@@ -158,7 +156,6 @@ class TarifControleur {
             return $stmt->rowCount() > 0;
         } catch (PDOException $e) {
             // Annuler la transaction en cas d'erreur
-            $conn->rollBack();
             error_log("Erreur lors de la mise à jour du service: " . $e->getMessage());
             throw new Exception('Erreur lors de la mise à jour du service');
         }
@@ -261,10 +258,10 @@ class TarifControleur {
      * Récupère les unités disponibles pour un service spécifique
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $serviceId ID du service
+     * @param int $service_id ID du service
      * @return array Liste des unités liées au service
      */
-    public static function getUnitesByService($conn, $serviceId) {
+    public static function getUnitesByService($conn, $service_id) {
         try {
             $sql = "SELECT u.id, u.code, u.nom, u.description 
                     FROM unites u 
@@ -273,7 +270,7 @@ class TarifControleur {
                     ORDER BY u.nom";
             
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$serviceId]);
+            $stmt->execute([$service_id]);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {
@@ -301,7 +298,7 @@ class TarifControleur {
                 $data['description'] ?? null
             ]);
             
-            $uniteId = $conn->lastInsertId();
+            $unite_id = $conn->lastInsertId();
     
             // Si un service est spécifié
             if (isset($data['service_id'])) {
@@ -320,10 +317,10 @@ class TarifControleur {
                 $sqlLink = "INSERT INTO services_unites (service_id, unite_id, actif, isDefault) 
                             VALUES (?, ?, 1, ?)";
                 $stmtLink = $conn->prepare($sqlLink);
-                $stmtLink->execute([$data['service_id'], $uniteId, $isDefault]);
+                $stmtLink->execute([$data['service_id'], $unite_id, $isDefault]);
             }
     
-            return $uniteId;
+            return $unite_id;
         } catch (PDOException $e) {
             error_log("Erreur lors de la création de l'unité: " . $e->getMessage());
             throw new Exception('Erreur lors de la création de l\'unité: ' . $e->getMessage());
@@ -362,10 +359,10 @@ class TarifControleur {
             $sqlService = "SELECT service_id FROM services_unites WHERE unite_id = ?";
             $stmtService = $conn->prepare($sqlService);
             $stmtService->execute([$id]);
-            $serviceId = $stmtService->fetchColumn();
+            $service_id = $stmtService->fetchColumn();
             
             // Gestion du champ isDefault au niveau de la relation service-unité
-            if (isset($data['isDefault']) && $serviceId) {
+            if (isset($data['isDefault']) && $service_id) {
                 // Convertir explicitement en booléen, avec false par défaut
                 $isDefault = $data['isDefault'] ? 1 : 0;
                 
@@ -375,7 +372,7 @@ class TarifControleur {
                                         SET isDefault = 0 
                                         WHERE service_id = ? AND isDefault = 1 AND unite_id != ?";
                     $stmtResetDefault = $conn->prepare($sqlResetDefault);
-                    $stmtResetDefault->execute([$serviceId, $id]);
+                    $stmtResetDefault->execute([$service_id, $id]);
                 }
                 
                 // Mettre à jour l'état par défaut de la relation service-unité
@@ -383,7 +380,7 @@ class TarifControleur {
                                      SET isDefault = ? 
                                      WHERE service_id = ? AND unite_id = ?";
                 $stmtUpdateDefault = $conn->prepare($sqlUpdateDefault);
-                $stmtUpdateDefault->execute([$isDefault, $serviceId, $id]);
+                $stmtUpdateDefault->execute([$isDefault, $service_id, $id]);
             }
             
             // Mise à jour de l'unité
@@ -404,21 +401,21 @@ class TarifControleur {
         }
     }
 
-    public static function updateServiceUniteDefault($conn, $serviceId, $uniteId) {
+    public static function updateServiceUniteDefault($conn, $service_id, $unite_id) {
         try {
             // Désactiver toutes les autres unités par défaut pour ce service
             $sqlResetDefault = "UPDATE services_unites 
                                 SET isDefault = 0 
                                 WHERE service_id = ?";
             $stmtResetDefault = $conn->prepare($sqlResetDefault);
-            $stmtResetDefault->execute([$serviceId]);
+            $stmtResetDefault->execute([$service_id]);
     
             // Définir la nouvelle unité par défaut
             $sqlSetDefault = "UPDATE services_unites 
                               SET isDefault = 1 
                               WHERE service_id = ? AND unite_id = ?";
             $stmtSetDefault = $conn->prepare($sqlSetDefault);
-            $stmtSetDefault->execute([$serviceId, $uniteId]);
+            $stmtSetDefault->execute([$service_id, $unite_id]);
     
             return [
                 'success' => true,
@@ -434,10 +431,10 @@ class TarifControleur {
      * Récupère l'ID de l'unité par défaut pour un service donné
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $serviceId ID du service
+     * @param int $service_id ID du service
      * @return array Résultat contenant l'ID de l'unité par défaut
      */
-    public static function getUniteDefautPourService($conn, $serviceId) {
+    public static function getUniteDefautPourService($conn, $service_id) {
         try {
             
             $sql = "SELECT unite_id FROM services_unites 
@@ -445,13 +442,13 @@ class TarifControleur {
                     LIMIT 1";
             
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$serviceId]);
+            $stmt->execute([$service_id]);
             
-            $uniteId = $stmt->fetchColumn();
+            $unite_id = $stmt->fetchColumn();
             
             return [
                 'success' => true,
-                'uniteId' => $uniteId ? intval($uniteId) : null
+                'unite_id' => $unite_id ? intval($unite_id) : null
             ];
         } catch (PDOException $e) {
             error_log("Erreur lors de la récupération de l'unité par défaut: " . $e->getMessage());
@@ -505,16 +502,16 @@ class TarifControleur {
      * Associe une unité à un service
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $serviceId ID du service
-     * @param int $uniteId ID de l'unité
+     * @param int $service_id ID du service
+     * @param int $unite_id ID de l'unité
      * @return bool Succès de l'opération
      */
-    public static function linkServiceUnite($conn, $serviceId, $uniteId) {
+    public static function linkServiceUnite($conn, $service_id, $unite_id) {
         try {
             // Vérifier si la liaison existe déjà
             $checkSql = "SELECT id, actif FROM services_unites WHERE service_id = ? AND unite_id = ?";
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$serviceId, $uniteId]);
+            $checkStmt->execute([$service_id, $unite_id]);
             $existingLink = $checkStmt->fetch(PDO::FETCH_ASSOC);
             
             if ($existingLink) {
@@ -532,7 +529,7 @@ class TarifControleur {
             // Sinon, créer une nouvelle liaison
             $sql = "INSERT INTO services_unites (service_id, unite_id, actif) VALUES (?, ?, 1)";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$serviceId, $uniteId]);
+            $stmt->execute([$service_id, $unite_id]);
             
             return true;
         } catch (PDOException $e) {
@@ -545,14 +542,14 @@ class TarifControleur {
      * Dissocie une unité d'un service
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $serviceId ID du service
-     * @param int $uniteId ID de l'unité
+     * @param int $service_id ID du service
+     * @param int $unite_id ID de l'unité
      * @return array Résultat de l'opération
      */
-    public static function unlinkServiceUnite($conn, $serviceId, $uniteId) {
+    public static function unlinkServiceUnite($conn, $service_id, $unite_id) {
         try {
             // Vérifier d'abord si cette liaison est utilisée dans des factures
-            $checkFactureResult = self::checkServiceUniteUsageInFacture($conn, $serviceId, $uniteId);
+            $checkFactureResult = self::checkServiceUniteUsageInFacture($conn, $service_id, $unite_id);
             
             if ($checkFactureResult['isUsed']) {
             // Si la liaison est utilisée dans des factures, empêcher la dissociation
@@ -570,13 +567,13 @@ class TarifControleur {
                         LIMIT 1";
             
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$serviceId, $uniteId, $serviceId, $uniteId]);
+            $checkStmt->execute([$service_id, $unite_id, $service_id, $unite_id]);
             
             if ($checkStmt->fetch()) {
             // Si la liaison est utilisée dans des tarifs, on la désactive
             $sql = "UPDATE services_unites SET actif = 0 WHERE service_id = ? AND unite_id = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$serviceId, $uniteId]);
+            $stmt->execute([$service_id, $unite_id]);
             
             return [
                 'success' => true,
@@ -587,7 +584,7 @@ class TarifControleur {
             // Si la liaison n'est pas utilisée, on peut la supprimer
             $sql = "DELETE FROM services_unites WHERE service_id = ? AND unite_id = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$serviceId, $uniteId]);
+            $stmt->execute([$service_id, $unite_id]);
             
             return [
                 'success' => true,
@@ -729,13 +726,13 @@ class TarifControleur {
      * Récupère les tarifs (standards et thérapeutes)
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int|null $serviceId Filtre par service
-     * @param int|null $uniteId Filtre par unité
-     * @param int|null $typeTarifId Filtre par type de tarif
+     * @param int|null $service_id Filtre par service
+     * @param int|null $unite_id Filtre par unité
+     * @param int|null $type_tarif_id Filtre par type de tarif
      * @param string $date Date pour laquelle récupérer les tarifs valides
      * @return array Liste des tarifs
      */
-    public static function getTarifs($conn, $serviceId = null, $uniteId = null, $typeTarifId = null, $date = null) {
+    public static function getTarifs($conn, $service_id = null, $unite_id = null, $type_tarif_id = null, $date = null) {
         try {
             $params = [];
             $conditions = [];
@@ -750,19 +747,19 @@ class TarifControleur {
                     JOIN types_tarifs tt ON t.type_tarif_id = tt.id
                     WHERE 1=1";
             
-            if ($serviceId !== null) {
+            if ($service_id !== null) {
                 $conditions[] = "t.service_id = ?";
-                $params[] = $serviceId;
+                $params[] = $service_id;
             }
             
-            if ($uniteId !== null) {
+            if ($unite_id !== null) {
                 $conditions[] = "t.unite_id = ?";
-                $params[] = $uniteId;
+                $params[] = $unite_id;
             }
             
-            if ($typeTarifId !== null) {
+            if ($type_tarif_id !== null) {
                 $conditions[] = "t.type_tarif_id = ?";
-                $params[] = $typeTarifId;
+                $params[] = $type_tarif_id;
             }
             
             if ($date !== null) {
@@ -793,12 +790,12 @@ class TarifControleur {
      * Récupère tous les tarifs (standards), valides ou non
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int|null $serviceId Filtre optionnel par service
-     * @param int|null $uniteId Filtre optionnel par unité
-     * @param int|null $typeTarifId Filtre optionnel par type de tarif
+     * @param int|null $service_id Filtre optionnel par service
+     * @param int|null $unite_id Filtre optionnel par unité
+     * @param int|null $type_tarif_id Filtre optionnel par type de tarif
      * @return array Liste de tous les tarifs
      */
-    public static function getAllTarifs($conn, $serviceId = null, $uniteId = null, $typeTarifId = null) {
+    public static function getAllTarifs($conn, $service_id = null, $unite_id = null, $type_tarif_id = null) {
         try {
             $params = [];
             $conditions = [];
@@ -813,19 +810,19 @@ class TarifControleur {
                     JOIN types_tarifs tt ON t.type_tarif_id = tt.id
                     WHERE 1=1";
             
-            if ($serviceId !== null) {
+            if ($service_id !== null) {
                 $conditions[] = "t.service_id = ?";
-                $params[] = $serviceId;
+                $params[] = $service_id;
             }
             
-            if ($uniteId !== null) {
+            if ($unite_id !== null) {
                 $conditions[] = "t.unite_id = ?";
-                $params[] = $uniteId;
+                $params[] = $unite_id;
             }
             
-            if ($typeTarifId !== null) {
+            if ($type_tarif_id !== null) {
                 $conditions[] = "t.type_tarif_id = ?";
-                $params[] = $typeTarifId;
+                $params[] = $type_tarif_id;
             }
             
             if (!empty($conditions)) {
@@ -848,12 +845,12 @@ class TarifControleur {
      * Récupère tous les tarifs spéciaux, valides ou non
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int|null $clientId Filtre optionnel par client
-     * @param int|null $serviceId Filtre optionnel par service
-     * @param int|null $uniteId Filtre optionnel par unité
+     * @param int|null $client_id Filtre optionnel par client
+     * @param int|null $service_id Filtre optionnel par service
+     * @param int|null $unite_id Filtre optionnel par unité
      * @return array Liste de tous les tarifs spéciaux
      */
-    public static function getAllTarifsSpeciaux($conn, $clientId = null, $serviceId = null, $uniteId = null) {
+    public static function getAllTarifsSpeciaux($conn, $client_id = null, $service_id = null, $unite_id = null) {
         try {
             $params = [];
             $conditions = [];
@@ -868,19 +865,19 @@ class TarifControleur {
                     JOIN unites u ON ts.unite_id = u.id
                     WHERE 1=1";
             
-            if ($clientId !== null) {
+            if ($client_id !== null) {
                 $conditions[] = "ts.client_id = ?";
-                $params[] = $clientId;
+                $params[] = $client_id;
             }
             
-            if ($serviceId !== null) {
+            if ($service_id !== null) {
                 $conditions[] = "ts.service_id = ?";
-                $params[] = $serviceId;
+                $params[] = $service_id;
             }
             
-            if ($uniteId !== null) {
+            if ($unite_id !== null) {
                 $conditions[] = "ts.unite_id = ?";
-                $params[] = $uniteId;
+                $params[] = $unite_id;
             }
             
             if (!empty($conditions)) {
@@ -917,9 +914,9 @@ class TarifControleur {
             
             $checkStmt = $conn->prepare($checkSql);
             $checkStmt->execute([
-                $data['serviceId'],
-                $data['uniteId'],
-                $data['typeTarifId'],
+                $data['service_id'],
+                $data['unite_id'],
+                $data['type_tarif_id'],
                 isset($data['date_debut']) ? $data['date_debut'] : date('Y-m-d'),
                 isset($data['date_fin']) ? $data['date_fin'] : null
             ]);
@@ -944,9 +941,9 @@ class TarifControleur {
             
             $stmt = $conn->prepare($sql);
             $stmt->execute([
-                $data['serviceId'],
-                $data['uniteId'],
-                $data['typeTarifId'],
+                $data['service_id'],
+                $data['unite_id'],
+                $data['type_tarif_id'],
                 $data['prix'],
                 isset($data['date_debut']) ? $data['date_debut'] : date('Y-m-d'),
                 isset($data['date_fin']) ? $data['date_fin'] : null
@@ -1031,13 +1028,13 @@ class TarifControleur {
      * Récupère les tarifs spéciaux par client
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int|null $clientId Filtre par client
-     * @param int|null $serviceId Filtre par service
-     * @param int|null $uniteId Filtre par unité
+     * @param int|null $client_id Filtre par client
+     * @param int|null $service_id Filtre par service
+     * @param int|null $unite_id Filtre par unité
      * @param string $date Date pour laquelle récupérer les tarifs valides
      * @return array Liste des tarifs spéciaux
      */
-    public static function getTarifsSpeciaux($conn, $clientId = null, $serviceId = null, $uniteId = null, $date = null) {
+    public static function getTarifsSpeciaux($conn, $client_id = null, $service_id = null, $unite_id = null, $date = null) {
         try {
             $params = [];
             $conditions = [];
@@ -1052,19 +1049,19 @@ class TarifControleur {
                     JOIN unites u ON ts.unite_id = u.id
                     WHERE 1=1";
             
-            if ($clientId !== null) {
+            if ($client_id !== null) {
                 $conditions[] = "ts.client_id = ?";
-                $params[] = $clientId;
+                $params[] = $client_id;
             }
             
-            if ($serviceId !== null) {
+            if ($service_id !== null) {
                 $conditions[] = "ts.service_id = ?";
-                $params[] = $serviceId;
+                $params[] = $service_id;
             }
             
-            if ($uniteId !== null) {
+            if ($unite_id !== null) {
                 $conditions[] = "ts.unite_id = ?";
-                $params[] = $uniteId;
+                $params[] = $unite_id;
             }
             
             if ($date !== null) {
@@ -1093,18 +1090,18 @@ class TarifControleur {
      * Récupère le tarif applicable pour un client spécifique
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client
-     * @param int $serviceId ID du service
-     * @param int $uniteId ID de l'unité
+     * @param int $client_id ID du client
+     * @param int $service_id ID du service
+     * @param int $unite_id ID de l'unité
      * @param string $date Date pour laquelle récupérer le tarif valide
      * @return array Résultat contenant le tarif applicable
      */
-    public static function getTarifClient($conn, $clientId, $serviceId, $uniteId, $date) {
+    public static function getTarifClient($conn, $client_id, $service_id, $unite_id, $date) {
         try {
             // Récupérer le statut thérapeute du client
             $sqlClientType = "SELECT estTherapeute FROM client WHERE id = ?";
             $stmtClientType = $conn->prepare($sqlClientType);
-            $stmtClientType->execute([$clientId]);
+            $stmtClientType->execute([$client_id]);
             $estTherapeute = $stmtClientType->fetchColumn();
     
             // D'abord, chercher un tarif spécial pour le client
@@ -1116,7 +1113,7 @@ class TarifControleur {
                            LIMIT 1";
             
             $stmtSpecial = $conn->prepare($sqlSpecial);
-            $stmtSpecial->execute([$clientId, $serviceId, $uniteId, $date, $date]);
+            $stmtSpecial->execute([$client_id, $service_id, $unite_id, $date, $date]);
             $tarifSpecial = $stmtSpecial->fetch(PDO::FETCH_ASSOC);
             
             if ($tarifSpecial) {
@@ -1127,7 +1124,7 @@ class TarifControleur {
             }
             
             // Déterminer le type de tarif à chercher
-            $typeTarifId = null;
+            $type_tarif_id = null;
             $tarifType = null;
             if ($estTherapeute) {
                 // Pour un client thérapeute, chercher un tarif thérapeute
@@ -1167,8 +1164,8 @@ class TarifControleur {
             $stmtStandard = $conn->prepare($sqlStandard);
             $stmtStandard->execute([
                 $tarifType,  // Passage explicite du type de tarif 
-                $serviceId, 
-                $uniteId, 
+                $service_id, 
+                $unite_id, 
                 $typeTarifInfo['id'], 
                 $date, 
                 $date
@@ -1216,9 +1213,9 @@ class TarifControleur {
             
             $checkStmt = $conn->prepare($checkSql);
             $checkStmt->execute([
-                $data['clientId'],
-                $data['serviceId'],
-                $data['uniteId'],
+                $data['client_id'],
+                $data['service_id'],
+                $data['unite_id'],
                 isset($data['date_debut']) ? $data['date_debut'] : date('Y-m-d'), // Correction ici
                 isset($data['date_fin']) ? $data['date_fin'] : null, // Correction ici
             ]);
@@ -1244,9 +1241,9 @@ class TarifControleur {
             
             $stmt = $conn->prepare($sql);
             $stmt->execute([
-                $data['clientId'],
-                $data['serviceId'],
-                $data['uniteId'],
+                $data['client_id'],
+                $data['service_id'],
+                $data['unite_id'],
                 $data['prix'],
                 isset($data['date_debut']) ? $data['date_debut'] : date('Y-m-d'),
                 isset($data['date_fin']) ? $data['date_fin'] : null,
@@ -1374,18 +1371,18 @@ class TarifControleur {
      * Vérifie si une liaison service-unité est utilisée dans des factures
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $serviceId ID du service
-     * @param int $uniteId ID de l'unité
+     * @param int $service_id ID du service
+     * @param int $unite_id ID de l'unité
      * @return array Résultat de la vérification
      */
-    public static function checkServiceUniteUsageInFacture($conn, $serviceId, $uniteId) {
+    public static function checkServiceUniteUsageInFacture($conn, $service_id, $unite_id) {
         try {
             // Vérifier si la liaison est utilisée dans des lignes de facture
             $checkSql = "SELECT COUNT(*) as total FROM lignesfacture 
                         WHERE service_id = ? AND unite_id = ?";
             
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$serviceId, $uniteId]);
+            $checkStmt->execute([$service_id, $unite_id]);
             
             $count = $checkStmt->fetch(PDO::FETCH_ASSOC)['total'];
             $isUsed = $count > 0;
@@ -1577,14 +1574,14 @@ class TarifControleur {
      * Vérifie si un client est thérapeute
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client
+     * @param int $client_id ID du client
      * @return bool True si le client est thérapeute, false sinon
      */
-    public static function estTherapeute($conn, $clientId) {
+    public static function estTherapeute($conn, $client_id) {
         try {
             $sql = "SELECT estTherapeute FROM client WHERE id = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$clientId]);
+            $stmt->execute([$client_id]);
             
             $result = $stmt->fetchColumn();
             return (bool)$result;
@@ -1598,11 +1595,11 @@ class TarifControleur {
      * Vérifie si un client possède au moins un tarif spécial valide à la date spécifiée
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client
+     * @param int $client_id ID du client
      * @param string|null $date Date pour laquelle vérifier la validité des tarifs spéciaux
      * @return bool True si le client possède au moins un tarif spécial valide, false sinon
      */
-    public static function possedeTarifSpecialDefini($conn, $clientId, $date = null) {
+    public static function possedeTarifSpecialDefini($conn, $client_id, $date = null) {
         try {
             $date = $date ?: date('Y-m-d');
             
@@ -1612,7 +1609,7 @@ class TarifControleur {
                     AND (date_fin IS NULL OR date_fin >= ?)";
             
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$clientId, $date, $date]);
+            $stmt->execute([$client_id, $date, $date]);
             
             $count = $stmt->fetchColumn();
             return $count > 0;
@@ -1626,25 +1623,25 @@ class TarifControleur {
      * Récupère toutes les unités applicables pour un client spécifique
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client
+     * @param int $client_id ID du client
      * @param string $date Date pour laquelle récupérer les unités avec tarifs valides
      * @return array Liste des unités avec leurs détails
      */
-    public static function getUnitesApplicablesPourClient($conn, $clientId, $date) {
+    public static function getUnitesApplicablesPourClient($conn, $client_id, $date) {
         try {
             // Vérifier si le client est thérapeute pour déterminer le type de tarif approprié
-            $estTherapeute = self::estTherapeute($conn, $clientId);
+            $estTherapeute = self::estTherapeute($conn, $client_id);
             $typeTarifCode = $estTherapeute ? 'Therapeute' : 'Normal';
             
             // Récupérer l'ID du type de tarif
             $sqlTypeTarif = "SELECT id FROM types_tarifs WHERE code = ?";
             $stmtTypeTarif = $conn->prepare($sqlTypeTarif);
             $stmtTypeTarif->execute([$typeTarifCode]);
-            $typeTarifId = $stmtTypeTarif->fetchColumn();
+            $type_tarif_id = $stmtTypeTarif->fetchColumn();
             
-            if (!$typeTarifId) {
+            if (!$type_tarif_id) {
                 // Si le type de tarif n'est pas trouvé, utiliser le tarif normal (id = 1)
-                $typeTarifId = 1;
+                $type_tarif_id = 1;
             }
             
             // Requête SQL qui récupère les unités avec tarifs standards applicables au client
@@ -1681,10 +1678,10 @@ class TarifControleur {
             
             $stmt = $conn->prepare($sql);
             $stmt->execute([
-                $typeTarifId,
+                $type_tarif_id,
                 $date,
                 $date,
-                $clientId,
+                $client_id,
                 $date,
                 $date
             ]);

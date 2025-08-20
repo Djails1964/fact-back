@@ -7,7 +7,7 @@ require_once realpath(__DIR__ . '/ServiceParametre.php');
 require_once realpath(__DIR__ . '/ActivityLogger.php'); // ✅ AJOUT
 require_once realpath(__DIR__ . '/../constants/ActivityLogsConstants.php'); // ✅ AJOUT
 require_once realpath(__DIR__ . '/../PDFGeneratorFactory.php');
-require_once realpath(__DIR__ . '/../ServiceTarif.php');
+require_once realpath(__DIR__ . '/ServiceTarif.php');
 require_once realpath(__DIR__ . '/../EmailService.php');
 require_once realpath(__DIR__ . '/../utils/helpers.php');
 
