@@ -125,11 +125,13 @@ class ServicePaiement {
      * @param int $id ID du paiement
      * @return array Informations du paiement
      */
-    public function getPaiement($id) {
+    public function getPaiement($id_paiement) {
         $user = $this->getCurrentUser();
         
         try {
-            $resultat = PaiementControleur::getPaiement($this->conn, $id);
+            error_log('ServicePaiement - getPaiement - id:'. $id_paiement);
+            $resultat = PaiementControleur::getPaiement($this->conn, $id_paiement);
+            error_log('ServicePaiement - getPaiement - id:'. json_encode($resultat));
             return $resultat;
             
         } catch (Exception $e) {
@@ -139,11 +141,11 @@ class ServicePaiement {
                 'user_name' => $user['name'],
                 'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
                 'entity_type' => ActivityLogsConstants::ENTITY_PAIEMENT,
-                'entity_id' => $id,
-                'description' => "Erreur lors de la consultation du paiement ID {$id}",
+                'entity_id' => $id_paiement,
+                'description' => "Erreur lors de la consultation du paiement ID {$id_paiement}",
                 'details' => [
                     'error_message' => $e->getMessage(),
-                    'paiement_id' => $id
+                    'paiement_id' => $id_paiement
                 ],
                 'severity' => ActivityLogsConstants::SEVERITY_WARNING
             ]);
@@ -230,6 +232,7 @@ class ServicePaiement {
      */
     public function getHistoriquePaiements($factureId) {
         $user = $this->getCurrentUser();
+        error_log('getHistoriquePaiements - factureId: '. $factureId);
         
         try {
             $resultat = PaiementControleur::getHistoriquePaiements($this->conn, $factureId);

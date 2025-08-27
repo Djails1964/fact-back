@@ -98,9 +98,14 @@ try {
             } else if (isset($_GET['unites'])) {
                 $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET unités pour service: " . ($service_id ?? 'tous'));
+                    error_log("🔥 tarif-api - GET unités pour service: " . ($service_id ?? 'tous'));
+                    error_log("🔥 tarif-api - service_id type: " . gettype($service_id));
+                    error_log("🔥 tarif-api - service_id value: " . var_export($service_id, true));
                 }
                 $resultat = $serviceTarif->getUnites($service_id);
+                if (is_dev_mode()) {
+                    error_log("📥 tarif-api - GET unités pour service - résultat: " . json_encode($resultat));
+                }
                 
             } else if (isset($_GET['typesTarifs'])) {
                 if (is_dev_mode()) {
@@ -201,6 +206,9 @@ try {
                     error_log("📥 tarif-api - GET unité par défaut pour service: $service_id");
                 }
                 $resultat = $serviceTarif->getUniteDefault($service_id);
+                if (is_dev_mode()) {
+                    error_log("🔧 tarif-api - Resultat GET unité par défaut pour service: " . json_encode($resultat));
+                }
                 
             } else if (isset($_GET['unitesClient'])) {
                 if (!isset($_GET['client_id'])) {

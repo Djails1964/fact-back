@@ -161,21 +161,21 @@ try {
             }
             
             // Paiement spécifique
-            if (isset($_GET['id'])) {
+            if (isset($_GET['id_paiement'])) {
                 if (is_dev_mode()) {
-                    error_log("paiement-api - GET paiement ID: " . $_GET['id'] . " (user: $userId)");
+                    error_log("paiement-api - GET paiement ID: " . $_GET['id_paiement'] . " (user: $userId)");
                 }
-                $resultat = $servicePaiement->getPaiement($_GET['id']);
+                $resultat = $servicePaiement->getPaiement($_GET['id_paiement']);
                 echo json_encode($resultat);
                 break;
             }
             
             // Paiements par facture
-            if (isset($_GET['facture_id'])) {
+            if (isset($_GET['id_facture'])) {
                 if (is_dev_mode()) {
-                    error_log("paiement-api - GET paiements facture ID: " . $_GET['facture_id'] . " (user: $userId)");
+                    error_log("paiement-api - GET paiements facture ID: " . $_GET['id_facture'] . " (user: $userId)");
                 }
-                $resultat = $servicePaiement->getPaiementsParFacture($_GET['facture_id']);
+                $resultat = $servicePaiement->getPaiementsParFacture($_GET['id_facture']);
                 echo json_encode($resultat);
                 break;
             }
@@ -190,8 +190,8 @@ try {
                 'mois' => isset($_GET['mois']) ? intval($_GET['mois']) : null,
                 'methode' => isset($_GET['methode']) ? $_GET['methode'] : null,
                 'statut' => isset($_GET['statut']) ? $_GET['statut'] : null,
-                'client_id' => isset($_GET['client_id']) ? intval($_GET['client_id']) : null,
-                'facture_id' => isset($_GET['facture_id']) ? intval($_GET['facture_id']) : null,
+                'id_client' => isset($_GET['id_client']) ? intval($_GET['id_client']) : null,
+                'id_facture' => isset($_GET['id_facture']) ? intval($_GET['id_facture']) : null,
                 'page' => $page,
                 'limit' => $limit
             ];

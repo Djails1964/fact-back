@@ -1,13 +1,34 @@
 <?php
-// ServiceTarif.php
+// ServiceTarif.php - Version refactorisée avec nouveaux contrôleurs
 
-require_once '../controllers/TarifControleur.php';
+require_once __DIR__ . '/../controllers/TarifControleur.php'; // Ancien
+require_once __DIR__ . '/../controllers/ServiceControleur.php'; // Nouveau
+require_once __DIR__ . '/../controllers/UniteControleur.php'; // Nouveau
 
 class ServiceTarif {
     private $conn;
+    private $serviceControleur; // Nouveau contrôleur
+    private $uniteControleur; // Nouveau contrôleur
+    private $tarifControleur; // Nouveau contrôleur
+    
+    // Flags pour activer progressivement les nouveaux contrôleurs
+    private $useNewServiceController = true;
+    private $useNewUniteController = true;
+    private $useNewTarifController = true; // NOUVEAU
     
     public function __construct($conn) {
         $this->conn = $conn;
+        
+        // Initialiser les nouveaux contrôleurs
+        if ($this->useNewServiceController) {
+            $this->serviceControleur = new ServiceControleur($conn);
+        }
+        if ($this->useNewUniteController) {
+            $this->uniteControleur = new UniteControleur($conn);
+        }
+        if ($this->useNewTarifController) {
+            $this->tarifControleur = new TarifControleur($conn);
+        }
     }
     
     /**
@@ -22,12 +43,9 @@ class ServiceTarif {
         }
         
         try {
-            // Démarrer une transaction
             $this->conn->beginTransaction();
-            
             $result = $operation();
             
-            // Valider la transaction si succès
             if ($result['success']) {
                 $this->conn->commit();
             } else {
@@ -37,7 +55,6 @@ class ServiceTarif {
             return $result;
             
         } catch (Exception $e) {
-            // Annuler la transaction en cas d'erreur
             if ($this->conn->inTransaction()) {
                 $this->conn->rollBack();
             }
@@ -50,976 +67,1121 @@ class ServiceTarif {
     }
     
     /**
-     * Récupère tous les services
-     * @param bool $actif Filtre sur les services actifs uniquement
-     * @return array Liste des services
+     * ===============================
+     * GESTION DES SERVICES
+     * ===============================
      */
-    public function getServices($actif = true) {
-        try {
-            $services = TarifControleur::getServices($this->conn, $actif);
-            
-            return [
-                'success' => true,
-                'services' => $services
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des services: ' . $e->getMessage()
-            ];
+    
+    public function getServices($actif = false) {
+        if ($this->useNewServiceController) {
+            try {
+                return [
+                    'success' => true,
+                    'services' => $this->serviceControleur->getAll($actif)
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des services: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $services = TarifControleur::getServices($this->conn, $actif);
+                return [
+                    'success' => true,
+                    'services' => $services
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des services: ' . $e->getMessage()
+                ];
+            }
         }
     }
     
-    /**
-     * Récupère un service par son ID
-     * @param int $id ID du service
-     * @return array Service trouvé ou erreur
-     */
     public function getServiceById($id) {
-        try {
-            $service = TarifControleur::getServiceById($this->conn, $id);
-            
-            if ($service) {
-                return [
-                    'success' => true,
-                    'service' => $service
-                ];
-            } else {
+        if ($this->useNewServiceController) {
+            try {
+                $service = $this->serviceControleur->getById($id);
+                return $service 
+                    ? ['success' => true, 'service' => $service]
+                    : ['success' => false, 'message' => 'Service non trouvé'];
+            } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Service non trouvé'
+                    'message' => 'Erreur lors de la récupération du service: ' . $e->getMessage()
                 ];
             }
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération du service: ' . $e->getMessage()
-            ];
+        } else {
+            try {
+                $service = TarifControleur::getServiceById($this->conn, $id);
+                if ($service) {
+                    return ['success' => true, 'service' => $service];
+                } else {
+                    return ['success' => false, 'message' => 'Service non trouvé'];
+                }
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération du service: ' . $e->getMessage()
+                ];
+            }
         }
     }
     
-    /**
-     * Crée un nouveau service avec gestion transactionnelle
-     * @param array $data Données du service
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function createService($data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($data) {
-            try {
-                $id = TarifControleur::createService($this->conn, $data);
-                
-                return [
-                    'success' => true,
-                    'message' => 'Service créé avec succès',
-                    'id' => $id
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la création du service: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
+        if ($this->useNewServiceController) {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = $this->serviceControleur->create($data);
+                    return [
+                        'success' => true,
+                        'message' => 'Service créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du service: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = TarifControleur::createService($this->conn, $data);
+                    return [
+                        'success' => true,
+                        'message' => 'Service créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du service: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
     }
     
-    /**
-     * Met à jour un service existant avec gestion transactionnelle
-     * @param int $id ID du service
-     * @param array $data Données mises à jour
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function updateService($id, $data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id, $data) {
-            try {
-                $result = TarifControleur::updateService($this->conn, $id, $data);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Service mis à jour avec succès'
-                    ];
-                } else {
+        if ($this->useNewServiceController) {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = $this->serviceControleur->update($id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Service mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou service non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Aucune modification effectuée ou service non trouvé'
+                        'message' => 'Erreur lors de la mise à jour du service: ' . $e->getMessage()
                     ];
                 }
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour du service: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = TarifControleur::updateService($this->conn, $id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Service mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou service non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la mise à jour du service: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
     }
-    
-    /**
-     * Supprime un service avec gestion transactionnelle
-     * @param int $id ID du service
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
+
     public function deleteService($id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id) {
-            try {
-                $result = TarifControleur::deleteService($this->conn, $id);
-                return $result;
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la suppression du service: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Récupère toutes les unités ou celles d'un service spécifique
-     * @param int|null $service_id ID du service (optionnel)
-     * @return array Liste des unités
-     */
-    public function getUnites($service_id = null) {
-        try {
-            if ($service_id !== null) {
-                // Récupérer les unités pour un service spécifique
-                $unites = TarifControleur::getUnitesByService($this->conn, $service_id);
-            } else {
-                // Récupérer toutes les unités
-                $unites = TarifControleur::getUnites($this->conn);
-            }
-            
-            // Retourner les unités sous forme de tableau plat
-            return [
-                'success' => true,
-                'unites' => $unites // Toujours un tableau plat
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des unités: ' . $e->getMessage()
-            ];
-        }
-    }
-    
-    /**
-     * Récupère toutes les relations entre services et unités
-     * @return array Liste des relations services-unités
-     */
-    public function getServicesUnites() {
-        try {
-            $relations = TarifControleur::getServicesUnites($this->conn);
-            
-            return [
-                'success' => true,
-                'servicesUnites' => $relations
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des relations services-unités: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Crée une nouvelle unité avec gestion transactionnelle
-     * @param array $data Données de l'unité
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function createUnite($data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($data) {
-            try {
-                $id = TarifControleur::createUnite($this->conn, $data);
-                
-                return [
-                    'success' => true,
-                    'message' => 'Unité créée avec succès',
-                    'id' => $id
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la création de l\'unité: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Met à jour une unité existante avec gestion transactionnelle
-     * @param int $id ID de l'unité
-     * @param array $data Données mises à jour
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function updateUnite($id, $data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id, $data) {
-            try {
-                $result = TarifControleur::updateUnite($this->conn, $id, $data);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Unité mise à jour avec succès'
-                    ];
-                } else {
+        if ($this->useNewServiceController) {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    return $this->serviceControleur->delete($id);
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Aucune modification effectuée ou unité non trouvée'
+                        'message' => 'Erreur lors de la suppression du service: ' . $e->getMessage()
                     ];
                 }
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour de l\'unité: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Supprime une unité avec gestion transactionnelle
-     * @param int $id ID de l'unité
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function deleteUnite($id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id) {
-            try {
-                $result = TarifControleur::deleteUnite($this->conn, $id);
-                return $result;
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la suppression de l\'unité: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Associe une unité à un service avec gestion transactionnelle
-     * @param int $service_id ID du service
-     * @param int $unite_id ID de l'unité
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function linkServiceUnite($service_id, $unite_id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
-            try {
-                $result = TarifControleur::linkServiceUnite($this->conn, $service_id, $unite_id);
-                
-                return [
-                    'success' => true,
-                    'message' => 'Association service-unité créée avec succès'
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de l\'association service-unité: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Dissocie une unité d'un service avec gestion transactionnelle
-     * @param int $service_id ID du service
-     * @param int $unite_id ID de l'unité
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function unlinkServiceUnite($service_id, $unite_id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
-            try {
-                $result = TarifControleur::unlinkServiceUnite($this->conn, $service_id, $unite_id);
-                return $result;
-            } catch (Exception $e) {
-                error_log('Erreur dans unlinkServiceUnite: ' . $e->getMessage());
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la dissociation: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-
-    /**
-     * Met à jour l'unité par défaut d'un service avec gestion transactionnelle
-     * @param int $service_id ID du service
-     * @param int $unite_id ID de l'unité
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function updateServiceUniteDefault($service_id, $unite_id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
-            try {
-                $result = TarifControleur::updateServiceUniteDefault($this->conn, $service_id, $unite_id);
-                return $result;
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour de l\'unité par défaut: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-
-    /**
-     * Obtient l'unité par défaut pour un service
-     * @param int $service_id ID du service
-     * @return array Résultat contenant l'ID de l'unité par défaut
-     */
-    public function getUniteDefault($service_id) {
-        try {
-            $result = TarifControleur::getUniteDefautPourService($this->conn, $service_id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération de l\'unité par défaut: ' . $e->getMessage()
-            ];
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = TarifControleur::deleteService($this->conn, $id);
+                    return $result;
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la suppression du service: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
         }
     }
 
-    /**
-     * Vérifie si un service est utilisé dans des factures ou des tarifs
-     * @param int $id ID du service
-     * @return array Résultat de la vérification
-     */
     public function checkServiceUsage($id) {
-        try {
-            $result = TarifControleur::checkServiceUsage($this->conn, $id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation du service: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si une liaison service-unité est utilisée dans des factures
-     * @param int $service_id ID du service
-     * @param int $unite_id ID de l'unité
-     * @return array Résultat de la vérification
-     */
-    public function checkServiceUniteUsageInFacture($service_id, $unite_id) {
-        try {
-            $result = TarifControleur::checkServiceUniteUsageInFacture($this->conn, $service_id, $unite_id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation de la liaison dans les factures: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si un type de tarif est utilisé dans des tarifs
-     * @param int $id ID du type de tarif
-     * @return array Résultat de la vérification
-     */
-    public function checkTypeTarifUsage($id) {
-        try {
-            $result = TarifControleur::checkTypeTarifUsage($this->conn, $id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation du type de tarif: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si une unité est utilisée dans des factures ou des tarifs
-     * @param int $id ID de l'unité
-     * @return array Résultat de la vérification
-     */
-    public function checkUniteUsage($id) {
-        try {
-            $result = TarifControleur::checkUniteUsage($this->conn, $id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation de l\'unité: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si un tarif standard est utilisé dans des factures
-     * @param int $id ID du tarif standard
-     * @return array Résultat de la vérification
-     */
-    public function checkTarifUsage($id) {
-        try {
-            $result = TarifControleur::checkTarifUsage($this->conn, $id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation du tarif: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si un tarif spécial est utilisé dans des factures
-     * @param int $id ID du tarif spécial
-     * @return array Résultat de la vérification
-     */
-    public function checkTarifSpecialUsage($id) {
-        try {
-            $result = TarifControleur::checkTarifSpecialUsage($this->conn, $id);
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification de l\'utilisation du tarif spécial: ' . $e->getMessage()
-            ];
-        }
-    }
-    
-    /**
-     * Récupère tous les types de tarifs
-     * @return array Liste des types de tarifs
-     */
-    public function getTypesTarifs() {
-        try {
-            $typesTarifs = TarifControleur::getTypesTarifs($this->conn);
-            
-            return [
-                'success' => true,
-                'typesTarifs' => $typesTarifs
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des types de tarifs: ' . $e->getMessage()
-            ];
-        }
-    }
-    
-    /**
-     * Crée un nouveau type de tarif avec gestion transactionnelle
-     * @param array $data Données du type de tarif
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function createTypeTarif($data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($data) {
+        if ($this->useNewServiceController) {
             try {
-                $id = TarifControleur::createTypeTarif($this->conn, $data);
-                
-                return [
-                    'success' => true,
-                    'message' => 'Type de tarif créé avec succès',
-                    'id' => $id
-                ];
+                return $this->serviceControleur->checkUsage($id);
             } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Erreur lors de la création du type de tarif: ' . $e->getMessage()
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du service: ' . $e->getMessage()
                 ];
             }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Met à jour un type de tarif existant avec gestion transactionnelle
-     * @param int $id ID du type de tarif
-     * @param array $data Données mises à jour
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function updateTypeTarif($id, $data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id, $data) {
+        } else {
             try {
-                $result = TarifControleur::updateTypeTarif($this->conn, $id, $data);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Type de tarif mis à jour avec succès'
-                    ];
-                } else {
-                    return [
-                        'success' => false,
-                        'message' => 'Aucune modification effectuée ou type de tarif non trouvé'
-                    ];
-                }
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour du type de tarif: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Supprime un type de tarif avec gestion transactionnelle
-     * @param int $id ID du type de tarif
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
-    public function deleteTypeTarif($id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id) {
-            try {
-                $result = TarifControleur::deleteTypeTarif($this->conn, $id);
+                $result = TarifControleur::checkServiceUsage($this->conn, $id);
                 return $result;
             } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Erreur lors de la suppression du type de tarif: ' . $e->getMessage()
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du service: ' . $e->getMessage()
                 ];
             }
-        }, $useTransaction);
+        }
     }
     
     /**
-     * Récupère les tarifs standards et thérapeutes
-     * @param int|null $service_id Filtre par service
-     * @param int|null $unite_id Filtre par unité
-     * @param int|null $type_tarif_id Filtre par type de tarif
-     * @param string|null $date Date pour laquelle récupérer les tarifs valides
-     * @return array Liste des tarifs
+     * ===============================
+     * GESTION DES UNITÉS
+     * ===============================
      */
+    
+    public function getUnites($service_id = null) {
+        if ($this->useNewUniteController) {
+            try {
+                $unites = $service_id !== null 
+                    ? $this->uniteControleur->getByService($service_id)
+                    : $this->uniteControleur->getAll();
+                
+                return ['success' => true, 'unites' => $unites];
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération des unités: ' . $e->getMessage()];
+            }
+        } else {
+            try {
+                if ($service_id !== null) {
+                    $unites = TarifControleur::getUnitesByService($this->conn, $service_id);
+                } else {
+                    $unites = TarifControleur::getUnites($this->conn);
+                }
+                
+                return ['success' => true, 'unites' => $unites];
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération des unités: ' . $e->getMessage()];
+            }
+        }
+    }
+    
+    public function getServicesUnites() {
+        if ($this->useNewUniteController) {
+            try {
+                $relations = $this->uniteControleur->getServicesUnites();
+                return ['success' => true, 'servicesUnites' => $relations];
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération des relations services-unités: ' . $e->getMessage()];
+            }
+        } else {
+            try {
+                $relations = TarifControleur::getServicesUnites($this->conn);
+                return ['success' => true, 'servicesUnites' => $relations];
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération des relations services-unités: ' . $e->getMessage()];
+            }
+        }
+    }
+
+    public function createUnite($data, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = $this->uniteControleur->create($data);
+                    return ['success' => true, 'message' => 'Unité créée avec succès', 'id' => $id];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la création de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = TarifControleur::createUnite($this->conn, $data);
+                    return ['success' => true, 'message' => 'Unité créée avec succès', 'id' => $id];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la création de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function updateUnite($id, $data, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = $this->uniteControleur->update($id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Unité mise à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou unité non trouvée'];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la mise à jour de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = TarifControleur::updateUnite($this->conn, $id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Unité mise à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou unité non trouvée'];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la mise à jour de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function deleteUnite($id, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    return $this->uniteControleur->delete($id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la suppression de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    return TarifControleur::deleteUnite($this->conn, $id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la suppression de l\'unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function linkServiceUnite($service_id, $unite_id, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    $this->uniteControleur->linkToService($unite_id, $service_id);
+                    return ['success' => true, 'message' => 'Association service-unité créée avec succès'];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de l\'association service-unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    TarifControleur::linkServiceUnite($this->conn, $service_id, $unite_id);
+                    return ['success' => true, 'message' => 'Association service-unité créée avec succès'];
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de l\'association service-unité: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function unlinkServiceUnite($service_id, $unite_id, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    return $this->uniteControleur->unlinkFromService($unite_id, $service_id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la dissociation: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    return TarifControleur::unlinkServiceUnite($this->conn, $service_id, $unite_id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la dissociation: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+
+    public function updateServiceUniteDefault($service_id, $unite_id, $useTransaction = true) {
+        if ($this->useNewUniteController) {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    return $this->uniteControleur->updateServiceUniteDefault($service_id, $unite_id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la mise à jour de l\'unité par défaut: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($service_id, $unite_id) {
+                try {
+                    return TarifControleur::updateServiceUniteDefault($this->conn, $service_id, $unite_id);
+                } catch (Exception $e) {
+                    return ['success' => false, 'message' => 'Erreur lors de la mise à jour de l\'unité par défaut: ' . $e->getMessage()];
+                }
+            }, $useTransaction);
+        }
+    }
+
+    public function getUniteDefault($service_id) {
+        if ($this->useNewUniteController) {
+            try {
+                $uniteId = $this->uniteControleur->getUniteDefaultForService($service_id);
+                return [
+                    'success' => true,
+                    'unite_id' => $uniteId
+                ];
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération de l\'unité par défaut: ' . $e->getMessage()];
+            }
+        } else {
+            try {
+                return TarifControleur::getUniteDefautPourService($this->conn, $service_id);
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la récupération de l\'unité par défaut: ' . $e->getMessage()];
+            }
+        }
+    }
+
+    public function checkUniteUsage($id) {
+        if ($this->useNewUniteController) {
+            try {
+                return $this->uniteControleur->checkUsage($id);
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la vérification de l\'utilisation de l\'unité: ' . $e->getMessage()];
+            }
+        } else {
+            try {
+                return TarifControleur::checkUniteUsage($this->conn, $id);
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la vérification de l\'utilisation de l\'unité: ' . $e->getMessage()];
+            }
+        }
+    }
+
+    public function checkServiceUniteUsageInFacture($service_id, $unite_id) {
+        if ($this->useNewUniteController) {
+            try {
+                return $this->uniteControleur->checkServiceUniteUsageInFacture($service_id, $unite_id);
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la vérification de l\'utilisation de la liaison dans les factures: ' . $e->getMessage()];
+            }
+        } else {
+            try {
+                return TarifControleur::checkServiceUniteUsageInFacture($this->conn, $service_id, $unite_id);
+            } catch (Exception $e) {
+                return ['success' => false, 'message' => 'Erreur lors de la vérification de l\'utilisation de la liaison dans les factures: ' . $e->getMessage()];
+            }
+        }
+    }
+    
+    /**
+     * ===============================
+     * GESTION DES TYPES DE TARIFS
+     * ===============================
+     */
+    
+    public function getTypesTarifs() {
+        if ($this->useNewTarifController) {
+            try {
+                $typesTarifs = $this->tarifControleur->getAllTypesTarifs();
+                return [
+                    'success' => true,
+                    'typesTarifs' => $typesTarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des types de tarifs: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $typesTarifs = TarifControleur::getTypesTarifs($this->conn);
+                return [
+                    'success' => true,
+                    'typesTarifs' => $typesTarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des types de tarifs: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+    
+    public function createTypeTarif($data, $useTransaction = true) {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = $this->tarifControleur->createTypeTarif($data);
+                    return [
+                        'success' => true,
+                        'message' => 'Type de tarif créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    $id = TarifControleur::createTypeTarif($this->conn, $data);
+                    return [
+                        'success' => true,
+                        'message' => 'Type de tarif créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function updateTypeTarif($id, $data, $useTransaction = true) {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = $this->tarifControleur->updateTypeTarif($id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Type de tarif mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou type de tarif non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la mise à jour du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = TarifControleur::updateTypeTarif($this->conn, $id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Type de tarif mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou type de tarif non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la mise à jour du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+    
+    public function deleteTypeTarif($id, $useTransaction = true) {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    return $this->tarifControleur->deleteTypeTarif($id);
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la suppression du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = TarifControleur::deleteTypeTarif($this->conn, $id);
+                    return $result;
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la suppression du type de tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+
+    public function checkTypeTarifUsage($id) {
+        if ($this->useNewTarifController) {
+            try {
+                return $this->tarifControleur->checkTypeTarifUsage($id);
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du type de tarif: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $result = TarifControleur::checkTypeTarifUsage($this->conn, $id);
+                return $result;
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du type de tarif: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+    
+    /**
+     * ===============================
+     * GESTION DES TARIFS STANDARDS
+     * ===============================
+     */
+    
     public function getTarifs($service_id = null, $unite_id = null, $type_tarif_id = null, $date = null) {
-        try {
-            error_log("getTarifs called with service_id: $service_id, unite_id: $unite_id, type_tarif_id: $type_tarif_id, date: $date");
-            $tarifs = TarifControleur::getTarifs(
-                $this->conn,
-                $service_id,
-                $unite_id,
-                $type_tarif_id,
-                $date
-            );
-            
-            return [
-                'success' => true,
-                'tarifs' => $tarifs
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des tarifs: ' . $e->getMessage()
-            ];
+        if ($this->useNewTarifController) {
+            try {
+                $tarifs = $this->tarifControleur->getTarifsStandards($service_id, $unite_id, $type_tarif_id, $date);
+                return [
+                    'success' => true,
+                    'tarifs' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des tarifs: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $tarifs = TarifControleur::getTarifs($this->conn, $service_id, $unite_id, $type_tarif_id, $date);
+                return [
+                    'success' => true,
+                    'tarifs' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des tarifs: ' . $e->getMessage()
+                ];
+            }
         }
     }
 
-    /**
-     * Récupère tous les tarifs standards (valides ou non)
-     * @param int|null $service_id Filtre par service
-     * @param int|null $unite_id Filtre par unité
-     * @param int|null $type_tarif_id Filtre par type de tarif
-     * @return array Liste de tous les tarifs standards
-     */
     public function getAllTarifs($service_id = null, $unite_id = null, $type_tarif_id = null) {
-        try {
-            $tarifs = TarifControleur::getAllTarifs(
-                $this->conn,
-                $service_id,
-                $unite_id,
-                $type_tarif_id
-            );
-            
-            return [
-                'success' => true,
-                'tarifs' => $tarifs
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération de tous les tarifs: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Récupère tous les tarifs spéciaux (valides ou non)
-     * @param int|null $client_id Filtre par client
-     * @param int|null $service_id Filtre par service
-     * @param int|null $unite_id Filtre par unité
-     * @return array Liste de tous les tarifs spéciaux
-     */
-    public function getAllTarifsSpeciaux($client_id = null, $service_id = null, $unite_id = null) {
-        try {
-            $tarifs = TarifControleur::getAllTarifsSpeciaux(
-                $this->conn,
-                $client_id,
-                $service_id,
-                $unite_id
-            );
-            
-            return [
-                'success' => true,
-                'tarifsSpeciaux' => $tarifs
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération de tous les tarifs spéciaux: ' . $e->getMessage()
-            ];
+        if ($this->useNewTarifController) {
+            try {
+                $tarifs = $this->tarifControleur->getAllTarifsStandards($service_id, $unite_id, $type_tarif_id);
+                return [
+                    'success' => true,
+                    'tarifs' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération de tous les tarifs: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $tarifs = TarifControleur::getAllTarifs($this->conn, $service_id, $unite_id, $type_tarif_id);
+                return [
+                    'success' => true,
+                    'tarifs' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération de tous les tarifs: ' . $e->getMessage()
+                ];
+            }
         }
     }
     
-    /**
-     * Crée un nouveau tarif avec gestion transactionnelle
-     * @param array $data Données du tarif
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function createTarif($data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($data) {
-            try {
-                // Valider les données
-                if (!isset($data['service_id']) || !isset($data['unite_id']) || 
-                    !isset($data['type_tarif_id']) || !isset($data['prix'])) {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    // Valider les données
+                    if (!isset($data['service_id']) || !isset($data['unite_id']) || 
+                        !isset($data['type_tarif_id']) || !isset($data['prix'])) {
+                        return [
+                            'success' => false,
+                            'message' => 'Données de tarif incomplètes'
+                        ];
+                    }
+                    
+                    $id = TarifControleur::createTarif($this->conn, $data);
+                    return [
+                        'success' => true,
+                        'message' => 'Tarif créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Données de tarif incomplètes'
+                        'message' => 'Erreur lors de la création du tarif: ' . $e->getMessage()
                     ];
                 }
-                
-                $id = TarifControleur::createTarif($this->conn, $data);
-                
-                return [
-                    'success' => true,
-                    'message' => 'Tarif créé avec succès',
-                    'id' => $id
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la création du tarif: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
+            }, $useTransaction);
+        }
     }
     
-    /**
-     * Met à jour un tarif existant avec gestion transactionnelle
-     * @param int $id ID du tarif
-     * @param array $data Données mises à jour
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function updateTarif($id, $data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id, $data) {
-            try {
-                $result = TarifControleur::updateTarif($this->conn, $id, $data);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Tarif mis à jour avec succès'
-                    ];
-                } else {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = $this->tarifControleur->updateTarifStandard($id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou tarif non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Aucune modification effectuée ou tarif non trouvé'
+                        'message' => 'Erreur lors de la mise à jour du tarif: ' . $e->getMessage()
                     ];
                 }
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour du tarif: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    $result = TarifControleur::updateTarif($this->conn, $id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou tarif non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la mise à jour du tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
     }
     
-    /**
-     * Supprime un tarif avec gestion transactionnelle
-     * @param int $id ID du tarif
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function deleteTarif($id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id) {
-            try {
-                $result = TarifControleur::deleteTarif($this->conn, $id);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Tarif supprimé avec succès'
-                    ];
-                } else {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = $this->tarifControleur->deleteTarifStandard($id);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif supprimé avec succès']
+                        : ['success' => false, 'message' => 'Tarif non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Tarif non trouvé'
+                        'message' => 'Erreur lors de la suppression du tarif: ' . $e->getMessage()
                     ];
                 }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = TarifControleur::deleteTarif($this->conn, $id);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif supprimé avec succès']
+                        : ['success' => false, 'message' => 'Tarif non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la suppression du tarif: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+
+    public function checkTarifUsage($id) {
+        if ($this->useNewTarifController) {
+            try {
+                return $this->tarifControleur->checkTarifStandardUsage($id);
             } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Erreur lors de la suppression du tarif: ' . $e->getMessage()
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du tarif: ' . $e->getMessage()
                 ];
             }
-        }, $useTransaction);
-    }
-    
-    /**
-     * Récupère les tarifs spéciaux par client
-     * @param int|null $client_id Filtre par client
-     * @param int|null $service_id Filtre par service
-     * @param int|null $unite_id Filtre par unité
-     * @param string|null $date Date pour laquelle récupérer les tarifs valides
-     * @return array Liste des tarifs spéciaux
-     */
-    public function getTarifsSpeciaux($client_id = null, $service_id = null, $unite_id = null, $date = null) {
-        try {
-            $tarifs = TarifControleur::getTarifsSpeciaux(
-                $this->conn,
-                $client_id,
-                $service_id,
-                $unite_id,
-                $date
-            );
-            
-            return [
-                'success' => true,
-                'tarifsSpeciaux' => $tarifs
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des tarifs spéciaux: ' . $e->getMessage()
-            ];
+        } else {
+            try {
+                $result = TarifControleur::checkTarifUsage($this->conn, $id);
+                return $result;
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du tarif: ' . $e->getMessage()
+                ];
+            }
         }
     }
     
     /**
-     * Crée un nouveau tarif spécial pour un client avec gestion transactionnelle
-     * @param array $data Données du tarif spécial
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
+     * ===============================
+     * GESTION DES TARIFS SPÉCIAUX
+     * ===============================
      */
-    public function createTarifSpecial($data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($data) {
+    
+    public function getTarifsSpeciaux($client_id = null, $service_id = null, $unite_id = null, $date = null) {
+        if ($this->useNewTarifController) {
             try {
-                // Valider les données
-                if (!isset($data['client_id']) || !isset($data['service_id']) || 
-                    !isset($data['unite_id']) || !isset($data['prix'])) {
-                    return [
-                        'success' => false,
-                        'message' => 'Données de tarif spécial incomplètes'
-                    ];
-                }
-                
-                // Vérifier que la note n'est pas vide
-                if (!isset($data['note']) || trim($data['note']) === '') {
-                    return [
-                        'success' => false,
-                        'message' => 'La note est obligatoire pour un tarif spécial'
-                    ];
-                }
-                
-                $id = TarifControleur::createTarifSpecial($this->conn, $data);
-                
+                $tarifs = $this->tarifControleur->getTarifsSpeciaux($client_id, $service_id, $unite_id, $date);
                 return [
                     'success' => true,
-                    'message' => 'Tarif spécial créé avec succès',
-                    'id' => $id
+                    'tarifsSpeciaux' => $tarifs
                 ];
             } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Erreur lors de la création du tarif spécial: ' . $e->getMessage()
+                    'message' => 'Erreur lors de la récupération des tarifs spéciaux: ' . $e->getMessage()
                 ];
             }
-        }, $useTransaction);
+        } else {
+            try {
+                $tarifs = TarifControleur::getTarifsSpeciaux($this->conn, $client_id, $service_id, $unite_id, $date);
+                return [
+                    'success' => true,
+                    'tarifsSpeciaux' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des tarifs spéciaux: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+
+    public function getAllTarifsSpeciaux($client_id = null, $service_id = null, $unite_id = null) {
+        if ($this->useNewTarifController) {
+            try {
+                $tarifs = $this->tarifControleur->getAllTarifsSpeciaux($client_id, $service_id, $unite_id);
+                return [
+                    'success' => true,
+                    'tarifsSpeciaux' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération de tous les tarifs spéciaux: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $tarifs = TarifControleur::getAllTarifsSpeciaux($this->conn, $client_id, $service_id, $unite_id);
+                return [
+                    'success' => true,
+                    'tarifsSpeciaux' => $tarifs
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération de tous les tarifs spéciaux: ' . $e->getMessage()
+                ];
+            }
+        }
     }
     
-    /**
-     * Met à jour un tarif spécial existant avec gestion transactionnelle
-     * @param int $id ID du tarif spécial
-     * @param array $data Données mises à jour
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
+    public function createTarifSpecial($data, $useTransaction = true) {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    // Valider les données
+                    if (!isset($data['client_id']) || !isset($data['service_id']) || 
+                        !isset($data['unite_id']) || !isset($data['prix'])) {
+                        return [
+                            'success' => false,
+                            'message' => 'Données de tarif spécial incomplètes'
+                        ];
+                    }
+                    
+                    // Vérifier que la note n'est pas vide
+                    if (!isset($data['note']) || trim($data['note']) === '') {
+                        return [
+                            'success' => false,
+                            'message' => 'La note est obligatoire pour un tarif spécial'
+                        ];
+                    }
+                    
+                    $id = $this->tarifControleur->createTarifSpecial($data);
+                    return [
+                        'success' => true,
+                        'message' => 'Tarif spécial créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du tarif spécial: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($data) {
+                try {
+                    // Valider les données
+                    if (!isset($data['client_id']) || !isset($data['service_id']) || 
+                        !isset($data['unite_id']) || !isset($data['prix'])) {
+                        return [
+                            'success' => false,
+                            'message' => 'Données de tarif spécial incomplètes'
+                        ];
+                    }
+                    
+                    // Vérifier que la note n'est pas vide
+                    if (!isset($data['note']) || trim($data['note']) === '') {
+                        return [
+                            'success' => false,
+                            'message' => 'La note est obligatoire pour un tarif spécial'
+                        ];
+                    }
+                    
+                    $id = TarifControleur::createTarifSpecial($this->conn, $data);
+                    return [
+                        'success' => true,
+                        'message' => 'Tarif spécial créé avec succès',
+                        'id' => $id
+                    ];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création du tarif spécial: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+    
     public function updateTarifSpecial($id, $data, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id, $data) {
-            try {
-                // Vérifier que la note n'est pas vide si elle est fournie
-                if (isset($data['note']) && trim($data['note']) === '') {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    // Vérifier que la note n'est pas vide si elle est fournie
+                    if (isset($data['note']) && trim($data['note']) === '') {
+                        return [
+                            'success' => false,
+                            'message' => 'La note est obligatoire pour un tarif spécial'
+                        ];
+                    }
+                    
+                    $result = $this->tarifControleur->updateTarifSpecial($id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif spécial mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou tarif spécial non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'La note est obligatoire pour un tarif spécial'
+                        'message' => 'Erreur lors de la mise à jour du tarif spécial: ' . $e->getMessage()
                     ];
                 }
-                
-                $result = TarifControleur::updateTarifSpecial($this->conn, $id, $data);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Tarif spécial mis à jour avec succès'
-                    ];
-                } else {
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id, $data) {
+                try {
+                    // Vérifier que la note n'est pas vide si elle est fournie
+                    if (isset($data['note']) && trim($data['note']) === '') {
+                        return [
+                            'success' => false,
+                            'message' => 'La note est obligatoire pour un tarif spécial'
+                        ];
+                    }
+                    
+                    $result = TarifControleur::updateTarifSpecial($this->conn, $id, $data);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif spécial mis à jour avec succès']
+                        : ['success' => false, 'message' => 'Aucune modification effectuée ou tarif spécial non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Aucune modification effectuée ou tarif spécial non trouvé'
+                        'message' => 'Erreur lors de la mise à jour du tarif spécial: ' . $e->getMessage()
                     ];
                 }
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la mise à jour du tarif spécial: ' . $e->getMessage()
-                ];
-            }
-        }, $useTransaction);
+            }, $useTransaction);
+        }
     }
     
-    /**
-     * Supprime un tarif spécial avec gestion transactionnelle
-     * @param int $id ID du tarif spécial
-     * @param bool $useTransaction Utiliser une transaction
-     * @return array Résultat de l'opération
-     */
     public function deleteTarifSpecial($id, $useTransaction = true) {
-        return $this->executeWithTransaction(function() use ($id) {
-            try {
-                $result = TarifControleur::deleteTarifSpecial($this->conn, $id);
-                
-                if ($result) {
-                    return [
-                        'success' => true,
-                        'message' => 'Tarif spécial supprimé avec succès'
-                    ];
-                } else {
+        if ($this->useNewTarifController) {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = $this->tarifControleur->deleteTarifSpecial($id);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif spécial supprimé avec succès']
+                        : ['success' => false, 'message' => 'Tarif spécial non trouvé'];
+                } catch (Exception $e) {
                     return [
                         'success' => false,
-                        'message' => 'Tarif spécial non trouvé'
+                        'message' => 'Erreur lors de la suppression du tarif spécial: ' . $e->getMessage()
                     ];
                 }
+            }, $useTransaction);
+        } else {
+            return $this->executeWithTransaction(function() use ($id) {
+                try {
+                    $result = TarifControleur::deleteTarifSpecial($this->conn, $id);
+                    return $result 
+                        ? ['success' => true, 'message' => 'Tarif spécial supprimé avec succès']
+                        : ['success' => false, 'message' => 'Tarif spécial non trouvé'];
+                } catch (Exception $e) {
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la suppression du tarif spécial: ' . $e->getMessage()
+                    ];
+                }
+            }, $useTransaction);
+        }
+    }
+
+    public function checkTarifSpecialUsage($id) {
+        if ($this->useNewTarifController) {
+            try {
+                return $this->tarifControleur->checkTarifSpecialUsage($id);
             } catch (Exception $e) {
                 return [
                     'success' => false,
-                    'message' => 'Erreur lors de la suppression du tarif spécial: ' . $e->getMessage()
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du tarif spécial: ' . $e->getMessage()
                 ];
             }
-        }, $useTransaction);
+        } else {
+            try {
+                $result = TarifControleur::checkTarifSpecialUsage($this->conn, $id);
+                return $result;
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification de l\'utilisation du tarif spécial: ' . $e->getMessage()
+                ];
+            }
+        }
     }
     
     /**
-     * Récupère le tarif applicable pour un client, un service et une unité spécifiques
-     * @param int $client_id ID du client
-     * @param int $service_id ID du service
-     * @param int $unite_id ID de l'unité
-     * @param string|null $date Date pour laquelle récupérer le tarif valide
-     * @return array Tarif applicable
+     * ===============================
+     * CALCULS DE TARIFS POUR CLIENTS
+     * ===============================
      */
+    
     public function getTarifClient($client_id, $service_id, $unite_id, $date = null) {
-        try {
-            $date = $date ?: date('Y-m-d');
-            $result = TarifControleur::getTarifClient($this->conn, $client_id, $service_id, $unite_id, $date);
-            
-            return $result;
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération du tarif client: ' . $e->getMessage()
-            ];
+        if ($this->useNewTarifController) {
+            try {
+                $date = $date ?: date('Y-m-d');
+                $result = $this->tarifControleur->getTarifPourClient($client_id, $service_id, $unite_id, $date);
+                return $result;
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération du tarif client: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $date = $date ?: date('Y-m-d');
+                $result = TarifControleur::getTarifClient($this->conn, $client_id, $service_id, $unite_id, $date);
+                return $result;
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération du tarif client: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+
+    public function estTherapeute($client_id) {
+        if ($this->useNewTarifController) {
+            try {
+                $result = $this->tarifControleur->isClientTherapeute($client_id);
+                return [
+                    'success' => true,
+                    'estTherapeute' => $result
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification du statut thérapeute: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $result = TarifControleur::estTherapeute($this->conn, $client_id);
+                return [
+                    'success' => true,
+                    'estTherapeute' => $result
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification du statut thérapeute: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+
+    public function possedeTarifSpecialDefini($client_id, $date = null) {
+        if ($this->useNewTarifController) {
+            try {
+                $result = $this->tarifControleur->clientPossedeTarifSpecial($client_id, $date);
+                return [
+                    'success' => true,
+                    'possedeTarifSpecial' => $result
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification des tarifs spéciaux: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $result = TarifControleur::possedeTarifSpecialDefini($this->conn, $client_id, $date);
+                return [
+                    'success' => true,
+                    'possedeTarifSpecial' => $result
+                ];
+            } catch (Exception $e) {
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la vérification des tarifs spéciaux: ' . $e->getMessage()
+                ];
+            }
+        }
+    }
+
+    public function getUnitesApplicablesPourClient($client_id, $date = null) {
+        if ($this->useNewTarifController) {
+            try {
+                $date = $date ?: date('Y-m-d');
+                $unites = $this->tarifControleur->getUnitesApplicablesPourClient($client_id, $date);
+                return [
+                    'success' => true,
+                    'unites' => $unites
+                ];
+            } catch (Exception $e) {
+                error_log("Erreur lors de la récupération des unités pour le client: " . $e->getMessage());
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des unités pour le client: ' . $e->getMessage()
+                ];
+            }
+        } else {
+            try {
+                $date = $date ?: date('Y-m-d');
+                $unites = TarifControleur::getUnitesApplicablesPourClient($this->conn, $client_id, $date);
+                return [
+                    'success' => true,
+                    'unites' => $unites
+                ];
+            } catch (Exception $e) {
+                error_log("Erreur lors de la récupération des unités pour le client: " . $e->getMessage());
+                return [
+                    'success' => false,
+                    'message' => 'Erreur lors de la récupération des unités pour le client: ' . $e->getMessage()
+                ];
+            }
         }
     }
     
-    /**
-     * Convertit le format des paramètres en structure de tarifs
-     * Cette méthode peut être utilisée pour maintenir la compatibilité
-     * avec l'ancien système de paramètres
-     * 
-     * @param array $parametres Paramètres de tarification de l'ancien format
-     * @return array Structure de tarifs dans le nouveau format
-     */
-    public function convertParametresToTarifs($parametres) {
-        $tarifs = [];
-        
-        // Logique de conversion à implémenter selon les besoins spécifiques
-        
-        return $tarifs;
-    }
-
-    /**
-     * Vérifie si un client est thérapeute
-     * @param int $client_id ID du client
-     * @return array Résultat de la vérification
-     */
-    public function estTherapeute($client_id) {
-        try {
-            $result = TarifControleur::estTherapeute($this->conn, $client_id);
-            
-            return [
-                'success' => true,
-                'estTherapeute' => $result
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification du statut thérapeute: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Vérifie si un client possède au moins un tarif spécial valide
-     * @param int $client_id ID du client
-     * @param string|null $date Date pour la vérification
-     * @return array Résultat de la vérification
-     */
-    public function possedeTarifSpecialDefini($client_id, $date = null) {
-        try {
-            $result = TarifControleur::possedeTarifSpecialDefini($this->conn, $client_id, $date);
-            
-            return [
-                'success' => true,
-                'possedeTarifSpecial' => $result
-            ];
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la vérification des tarifs spéciaux: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
-     * Récupère toutes les unités applicables pour un client spécifique
-     * Cela inclut les unités avec tarifs standards et les unités avec tarifs spéciaux
-     * 
-     * @param int $client_id ID du client
-     * @param string $date Date pour laquelle vérifier les tarifs valides
-     * @return array Liste des unités applicables
-     */
-    public function getUnitesApplicablesPourClient($client_id, $date = null) {
-        try {
-            $date = $date ?: date('Y-m-d');
-            
-            $unites = TarifControleur::getUnitesApplicablesPourClient($this->conn, $client_id, $date);
-            
-            return [
-                'success' => true,
-                'unites' => $unites
-            ];
-        } catch (Exception $e) {
-            error_log("Erreur lors de la récupération des unités pour le client: " . $e->getMessage());
-            return [
-                'success' => false,
-                'message' => 'Erreur lors de la récupération des unités pour le client: ' . $e->getMessage()
-            ];
-        }
-    }
-
     /**
      * ==========================================
      * OPÉRATIONS TRANSACTIONNELLES COMPLEXES
@@ -1128,65 +1290,6 @@ class ServiceTarif {
     }
 
     /**
-     * Duplique un service avec tous ses tarifs
-     * @param int $service_id ID du service à dupliquer
-     * @param string $nouveauNom Nom du nouveau service
-     * @return array Résultat de l'opération
-     */
-    public function duplicateService($service_id, $nouveauNom) {
-        return $this->executeWithTransaction(function() use ($service_id, $nouveauNom) {
-            try {
-                // 1. Récupérer le service original
-                $serviceResult = $this->getServiceById($service_id);
-                if (!$serviceResult['success']) {
-                    return $serviceResult;
-                }
-                
-                $serviceOriginal = $serviceResult['service'];
-                $serviceOriginal['nom'] = $nouveauNom;
-                unset($serviceOriginal['id']);
-
-                // 2. Créer le nouveau service
-                $newServiceResult = $this->createService($serviceOriginal, false);
-                if (!$newServiceResult['success']) {
-                    return $newServiceResult;
-                }
-                $newservice_id = $newServiceResult['id'];
-
-                // 3. Récupérer et dupliquer les associations unités
-                $unitesResult = $this->getUnites($service_id);
-                if ($unitesResult['success']) {
-                    foreach ($unitesResult['unites'] as $unite) {
-                        $this->linkServiceUnite($newservice_id, $unite['id'], false);
-                    }
-                }
-
-                // 4. Récupérer et dupliquer les tarifs
-                $tarifsResult = $this->getAllTarifs($service_id);
-                if ($tarifsResult['success']) {
-                    foreach ($tarifsResult['tarifs'] as $tarif) {
-                        $newTarif = $tarif;
-                        $newTarif['service_id'] = $newservice_id;
-                        unset($newTarif['id']);
-                        $this->createTarif($newTarif, false);
-                    }
-                }
-
-                return [
-                    'success' => true,
-                    'message' => 'Service dupliqué avec succès',
-                    'newservice_id' => $newservice_id
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la duplication du service: ' . $e->getMessage()
-                ];
-            }
-        });
-    }
-
-    /**
      * Applique des tarifs spéciaux en masse pour un client
      * @param int $client_id ID du client
      * @param array $tarifsSpeciaux Tarifs spéciaux à appliquer
@@ -1234,51 +1337,6 @@ class ServiceTarif {
             }
         });
     }
-
-    /**
-     * Migre tous les tarifs d'un type vers un autre type
-     * @param int $ancienTypeId ID de l'ancien type de tarif
-     * @param int $nouveauTypeId ID du nouveau type de tarif
-     * @return array Résultat de l'opération
-     */
-    public function migrerTarifsVersNouveauType($ancienTypeId, $nouveauTypeId) {
-        return $this->executeWithTransaction(function() use ($ancienTypeId, $nouveauTypeId) {
-            try {
-                // Récupérer tous les tarifs de l'ancien type
-                $tarifsResult = $this->getAllTarifs(null, null, $ancienTypeId);
-                if (!$tarifsResult['success']) {
-                    return $tarifsResult;
-                }
-
-                $tarifs = $tarifsResult['tarifs'];
-                $tarifsMigres = 0;
-
-                foreach ($tarifs as $tarif) {
-                    $updateResult = $this->updateTarif($tarif['id'], ['type_tarif_id' => $nouveauTypeId], false);
-                    if ($updateResult['success']) {
-                        $tarifsMigres++;
-                    }
-                }
-
-                return [
-                    'success' => true,
-                    'message' => "$tarifsMigres tarifs migrés vers le nouveau type",
-                    'tarifsMigres' => $tarifsMigres
-                ];
-            } catch (Exception $e) {
-                return [
-                    'success' => false,
-                    'message' => 'Erreur lors de la migration des tarifs: ' . $e->getMessage()
-                ];
-            }
-        });
-    }
-
-    /**
-     * ==========================================
-     * GESTION TRANSACTIONNELLE EN BATCH
-     * ==========================================
-     */
 
     /**
      * Exécute plusieurs opérations en mode batch transactionnel
@@ -1388,32 +1446,6 @@ class ServiceTarif {
     }
 
     /**
-     * Force le rollback d'une transaction en cours (pour debug)
-     * @return array Résultat de l'opération
-     */
-    public function forceRollback() {
-        try {
-            if ($this->conn->inTransaction()) {
-                $this->conn->rollBack();
-                return [
-                    'success' => true,
-                    'message' => 'Transaction annulée avec succès'
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'message' => 'Aucune transaction en cours'
-                ];
-            }
-        } catch (Exception $e) {
-            return [
-                'success' => false,
-                'message' => 'Erreur lors du rollback: ' . $e->getMessage()
-            ];
-        }
-    }
-
-    /**
      * Valide l'intégrité des données tarifaires
      * @return array Résultat de la validation
      */
@@ -1427,7 +1459,7 @@ class ServiceTarif {
                 foreach ($servicesResult['services'] as $service) {
                     $unitesResult = $this->getUnites($service['id']);
                     if ($unitesResult['success'] && empty($unitesResult['unites'])) {
-                        $erreurs[] = "Service '{$service['nom']}' n'a aucune unité associée";
+                        $erreurs[] = "Service '{$service['nom_service']}' n'a aucune unité associée";
                     }
                 }
             }
@@ -1453,6 +1485,82 @@ class ServiceTarif {
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la validation: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * ==========================================
+     * MÉTHODES DE MIGRATION ET COMPATIBILITÉ
+     * ==========================================
+     */
+
+    /**
+     * Convertit le format des paramètres en structure de tarifs
+     * Cette méthode peut être utilisée pour maintenir la compatibilité
+     * avec l'ancien système de paramètres
+     * 
+     * @param array $parametres Paramètres de tarification de l'ancien format
+     * @return array Structure de tarifs dans le nouveau format
+     */
+    public function convertParametresToTarifs($parametres) {
+        $tarifs = [];
+        
+        // Logique de conversion à implémenter selon les besoins spécifiques
+        // Cette méthode permet de migrer progressivement l'ancien système
+        
+        return $tarifs;
+    }
+
+    /**
+     * Active ou désactive l'utilisation des nouveaux contrôleurs
+     * Utile pour la migration progressive
+     */
+    public function setControllerFlags($service = null, $unite = null, $tarif = null) {
+        if ($service !== null) {
+            $this->useNewServiceController = $service;
+        }
+        if ($unite !== null) {
+            $this->useNewUniteController = $unite;
+        }
+        if ($tarif !== null) {
+            $this->useNewTarifController = $tarif;
+        }
+    }
+
+    /**
+     * Retourne l'état des flags des contrôleurs
+     */
+    public function getControllerFlags() {
+        return [
+            'useNewServiceController' => $this->useNewServiceController,
+            'useNewUniteController' => $this->useNewUniteController,
+            'useNewTarifController' => $this->useNewTarifController
+        ];
+    }
+
+    /**
+     * Force le rollback d'une transaction en cours (pour debug)
+     * @return array Résultat de l'opération
+     */
+    public function forceRollback() {
+        try {
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+                return [
+                    'success' => true,
+                    'message' => 'Transaction annulée avec succès'
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => 'Aucune transaction en cours'
+                ];
+            }
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Erreur lors du rollback: ' . $e->getMessage()
             ];
         }
     }
