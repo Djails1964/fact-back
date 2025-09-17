@@ -17,15 +17,15 @@ class PaiementControleur {
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
      */
-    public static function enregistrerPaiement($conn, $factureId, $data) {
+    public static function enregistrerPaiement($conn, $id_facture, $data) {
         try {
             // Validation des données
-            if (!isset($data['datePaiement']) || !isset($data['montantPaye']) || !isset($data['methodePaiement'])) {
+            if (!isset($data['date_paiement']) || !isset($data['montant_paye']) || !isset($data['methode_paiement'])) {
                 throw new Exception('Données de paiement incomplètes');
             }
             
-            $montantPaye = floatval($data['montantPaye']);
-            if ($montantPaye <= 0) {
+            $montant_paye = floatval($data['montant_paye']);
+            if ($montant_paye <= 0) {
                 throw new Exception('Le montant payé doit être positif');
             }
             
@@ -33,7 +33,7 @@ class PaiementControleur {
             $sqlFacture = "SELECT id_facture, montant_total, ristourne, montant_paye_total, etat 
                           FROM facture WHERE id_facture = ?";
             $stmtFacture = $conn->prepare($sqlFacture);
-            $stmtFacture->execute([$factureId]);
+            $stmtFacture->execute([$id_facture]);
             $facture = $stmtFacture->fetch(PDO::FETCH_ASSOC);
             
             if (!$facture) {
@@ -41,21 +41,21 @@ class PaiementControleur {
             }
             
             // Calculer le montant restant à payer
-            $montantTotal = floatval($facture['montant_total']) - floatval($facture['ristourne']);
-            $montantDejaPaye = floatval($facture['montant_paye_total']);
-            $montantRestant = $montantTotal - $montantDejaPaye;
+            $montant_total = floatval($facture['montant_total']) - floatval($facture['ristourne']);
+            $montant_deja_paye = floatval($facture['montant_paye_total']);
+            $montant_restants = $montant_total - $montant_deja_paye;
             
             // Vérifier que le paiement ne dépasse pas le montant restant
-            if ($montantPaye > $montantRestant + 0.01) { // +0.01 pour les erreurs d'arrondi
-                throw new Exception("Le montant payé ({$montantPaye} CHF) dépasse le montant restant à payer ({$montantRestant} CHF)");
+            if ($montant_paye > $montant_restants + 0.01) { // +0.01 pour les erreurs d'arrondi
+                throw new Exception("Le montant payé ({$montant_paye} CHF) dépasse le montant restant à payer ({$montant_restants} CHF)");
             }
             
             // Déterminer le numéro de paiement
             $sqlNumeroPaiement = "SELECT COALESCE(MAX(numero_paiement), 0) + 1 as prochain_numero 
                                  FROM paiement WHERE id_facture = ?";
             $stmtNumero = $conn->prepare($sqlNumeroPaiement);
-            $stmtNumero->execute([$factureId]);
-            $numeroPaiement = $stmtNumero->fetch(PDO::FETCH_ASSOC)['prochain_numero'];
+            $stmtNumero->execute([$id_facture]);
+            $numero_paiement = $stmtNumero->fetch(PDO::FETCH_ASSOC)['prochain_numero'];
             
             // Insérer le paiement
             $sqlPaiement = "INSERT INTO paiement 
@@ -63,12 +63,12 @@ class PaiementControleur {
                            VALUES (?, ?, ?, ?, ?, ?)";
             $stmtPaiement = $conn->prepare($sqlPaiement);
             $stmtPaiement->execute([
-                $factureId,
-                $data['datePaiement'],
-                $montantPaye,
-                $data['methodePaiement'],
+                $id_facture,
+                $data['date_paiement'],
+                $montant_paye,
+                $data['methode_paiement'],
                 $data['commentaire'] ?? null,
-                $numeroPaiement
+                $numero_paiement
             ]);
             
             $id_paiement = $conn->lastInsertId();
@@ -78,8 +78,8 @@ class PaiementControleur {
             return [
                 'success' => true,
                 'message' => 'Paiement enregistré avec succès',
-                'paiementId' => $id_paiement,
-                'numeroPaiement' => $numeroPaiement
+                'id_paiement' => $id_paiement,
+                'numero_paiement' => $numero_paiement
             ];
             
         } catch (PDOException $e) {
@@ -92,12 +92,13 @@ class PaiementControleur {
      * Récupère un paiement spécifique par son ID
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id_paiement ID du paiement
+     * @param int $paiementId ID du paiement
      * @return array Informations du paiement
      * @throws Exception En cas d'erreur
      */
     public static function getPaiement($conn, $id_paiement) {
         try {
+            error_log("Récupération du paiement avec ID: " . $id_paiement);
             $sql = "SELECT p.*, 
                            f.numero_facture, f.montant_total, f.ristourne,
                            CONCAT(c.prenom, ' ', c.nom) as nom_client,
@@ -184,7 +185,7 @@ class PaiementControleur {
             
             if (!empty($options['facture_id'])) {
                 $sql .= " AND f.id_facture = ?";
-                $params[] = $options['facture_id'];
+                $params[] = $options['id_facture'];
             }
             
             // Tri par défaut : plus récents en premier
@@ -318,107 +319,17 @@ class PaiementControleur {
      * @return array Liste des paiements
      * @throws Exception En cas d'erreur
      */
-    // public static function getHistoriquePaiements($conn, $factureId) {
-    //     try {
-    //         $sql = "SELECT p.*, f.numero_facture, f.montant_total, f.ristourne
-    //                 FROM paiement p
-    //                 JOIN facture f ON p.id_facture = f.id_facture
-    //                 WHERE p.id_facture = ?
-    //                 ORDER BY p.numero_paiement ASC, p.date_creation ASC";
-            
-    //         $stmt = $conn->prepare($sql);
-    //         $stmt->execute([$factureId]);
-    //         $paiements = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    //         error_log('PaiementControleur - getHistoriquePaiements - paiements:'. json_encode($paiements));
-            
-    //         return [
-    //             'success' => true,
-    //             'paiements' => $paiements
-    //         ];
-            
-    //     } catch (PDOException $e) {
-    //         error_log("Erreur SQL lors de la récupération de l'historique: " . $e->getMessage());
-    //         throw new Exception('Erreur lors de la récupération de l\'historique des paiements');
-    //     }
-    // }
-
-    public static function getHistoriquePaiements($conn, $factureId) {
+    public static function getHistoriquePaiements($conn, $id_facture) {
         try {
-            // ✅ AJOUT: Debug de l'ID facture reçu
-            error_log("🔍 PaiementControleur - getHistoriquePaiements - ID facture reçu: " . var_export($factureId, true));
-            error_log("🔍 PaiementControleur - getHistoriquePaiements - Type ID facture: " . gettype($factureId));
-            
             $sql = "SELECT p.*, f.numero_facture, f.montant_total, f.ristourne
                     FROM paiement p
                     JOIN facture f ON p.id_facture = f.id_facture
                     WHERE p.id_facture = ?
                     ORDER BY p.numero_paiement ASC, p.date_creation ASC";
             
-            // ✅ AJOUT: Debug de la requête SQL
-            error_log("🔍 PaiementControleur - SQL à exécuter: " . $sql);
-            error_log("🔍 PaiementControleur - Paramètre: " . var_export($factureId, true));
-            
             $stmt = $conn->prepare($sql);
-            
-            // ✅ AJOUT: Vérification de la préparation
-            if (!$stmt) {
-                error_log("❌ Erreur lors de la préparation de la requête SQL");
-                throw new Exception('Erreur lors de la préparation de la requête SQL');
-            }
-            
-            // ✅ AJOUT: Debug avant exécution
-            error_log("🔍 PaiementControleur - Exécution de la requête avec paramètre: " . var_export($factureId, true));
-            
-            $executeResult = $stmt->execute([$factureId]);
-            
-            // ✅ AJOUT: Vérification de l'exécution
-            if (!$executeResult) {
-                error_log("❌ Erreur lors de l'exécution de la requête SQL");
-                error_log("❌ Erreur PDO: " . json_encode($stmt->errorInfo()));
-                throw new Exception('Erreur lors de l\'exécution de la requête SQL');
-            }
-            
-            // ✅ AJOUT: Debug du nombre de lignes trouvées
-            $rowCount = $stmt->rowCount();
-            error_log("🔍 PaiementControleur - Nombre de lignes trouvées: " . $rowCount);
-            
+            $stmt->execute([$id_facture]);
             $paiements = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
-            // ✅ AJOUT: Debug détaillé des résultats
-            error_log("🔍 PaiementControleur - Nombre de paiements récupérés: " . count($paiements));
-            
-            if (count($paiements) > 0) {
-                error_log("🔍 PaiementControleur - Premier paiement (structure): " . json_encode($paiements[0], JSON_PRETTY_PRINT));
-                error_log("🔍 PaiementControleur - Clés disponibles: " . json_encode(array_keys($paiements[0])));
-                
-                // ✅ AJOUT: Vérifier les ID facture dans les résultats
-                $idsFacture = array_unique(array_column($paiements, 'id_facture'));
-                error_log("🔍 PaiementControleur - IDs facture trouvés dans les résultats: " . json_encode($idsFacture));
-            } else {
-                error_log("📭 PaiementControleur - Aucun paiement trouvé pour la facture ID: " . $factureId);
-                
-                // ✅ AJOUT: Vérification si la facture existe
-                $checkSql = "SELECT COUNT(*) as count FROM facture WHERE id_facture = ?";
-                $checkStmt = $conn->prepare($checkSql);
-                $checkStmt->execute([$factureId]);
-                $factureExists = $checkStmt->fetch(PDO::FETCH_ASSOC);
-                error_log("🔍 PaiementControleur - La facture existe-t-elle? " . json_encode($factureExists));
-                
-                // ✅ AJOUT: Vérification s'il y a des paiements pour cette facture
-                $paiementsSql = "SELECT COUNT(*) as count FROM paiement WHERE id_facture = ?";
-                $paiementsStmt = $conn->prepare($paiementsSql);
-                $paiementsStmt->execute([$factureId]);
-                $paiementsCount = $paiementsStmt->fetch(PDO::FETCH_ASSOC);
-                error_log("🔍 PaiementControleur - Nombre de paiements dans la table: " . json_encode($paiementsCount));
-            }
-            
-            // ✅ AJOUT: Debug final avec tous les paiements (si pas trop nombreux)
-            if (count($paiements) <= 10) {
-                error_log("🔍 PaiementControleur - Tous les paiements: " . json_encode($paiements, JSON_PRETTY_PRINT));
-            } else {
-                error_log("🔍 PaiementControleur - Trop de paiements pour un log complet (" . count($paiements) . "), affichage des 3 premiers:");
-                error_log("🔍 PaiementControleur - 3 premiers paiements: " . json_encode(array_slice($paiements, 0, 3), JSON_PRETTY_PRINT));
-            }
             
             return [
                 'success' => true,
@@ -426,14 +337,8 @@ class PaiementControleur {
             ];
             
         } catch (PDOException $e) {
-            error_log("❌ Erreur SQL lors de la récupération de l'historique: " . $e->getMessage());
-            error_log("❌ Code erreur SQL: " . $e->getCode());
-            error_log("❌ Trace SQL: " . $e->getTraceAsString());
-            throw new Exception('Erreur lors de la récupération de l\'historique des paiements: ' . $e->getMessage());
-        } catch (Exception $e) {
-            error_log("❌ Erreur générale lors de la récupération de l'historique: " . $e->getMessage());
-            error_log("❌ Trace: " . $e->getTraceAsString());
-            throw $e;
+            error_log("Erreur SQL lors de la récupération de l'historique: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération de l\'historique des paiements');
         }
     }
 
@@ -441,12 +346,12 @@ class PaiementControleur {
      * Annule un paiement (au lieu de le supprimer)
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id_paiement ID du paiement à annuler
+     * @param int $paiementId ID du paiement à annuler
      * @param string $motifAnnulation Motif de l'annulation
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
      */
-    public static function annulerPaiement($conn, $id_paiement, $motifAnnulation = null) {
+    public static function annulerPaiement($conn, $id_paiement, $motif_annulation = null) {
         try {
             // Vérifier que le paiement existe et n'est pas déjà annulé
             $sqlCheck = "SELECT id_paiement, id_facture, montant_paye, statut, numero_paiement 
@@ -472,16 +377,16 @@ class PaiementControleur {
                         date_modification = NOW()
                     WHERE id_paiement = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$motifAnnulation, $id_paiement]);
-            
+            $stmt->execute([$motif_annulation, $id_paiement]);
+
             // Les triggers se chargent automatiquement de la mise à jour de la facture
             
             return [
                 'success' => true,
                 'message' => 'Paiement annulé avec succès',
-                'paiementId' => $id_paiement,
-                'factureId' => $paiement['id_facture'],
-                'numeroPaiement' => $paiement['numero_paiement']
+                'id_paiement' => $id_paiement,
+                'id_facture' => $paiement['id_facture'],
+                'numero_paiement' => $paiement['numero_paiement']
             ];
             
         } catch (PDOException $e) {
@@ -494,7 +399,7 @@ class PaiementControleur {
      * Supprime un paiement (annulation)
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id_paiement ID du paiement à supprimer
+     * @param int $paiementId ID du paiement à supprimer
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
      */
@@ -518,7 +423,7 @@ class PaiementControleur {
             return [
                 'success' => true,
                 'message' => 'Paiement supprimé avec succès',
-                'factureId' => $paiement['id_facture']
+                'id_facture' => $paiement['id_facture']
             ];
             
         } catch (PDOException $e) {
@@ -575,7 +480,7 @@ class PaiementControleur {
      * Modifie un paiement existant
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id_paiement ID du paiement à modifier
+     * @param int $paiementId ID du paiement à modifier
      * @param array $data Nouvelles données du paiement
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
@@ -593,19 +498,19 @@ class PaiementControleur {
             }
             
             // Validation des nouvelles données
-            if (isset($data['montantPaye'])) {
-                $nouveauMontant = floatval($data['montantPaye']);
+            if (isset($data['montant_paye'])) {
+                $nouveauMontant = floatval($data['montant_paye']);
                 if ($nouveauMontant <= 0) {
                     throw new Exception('Le montant payé doit être positif');
                 }
                 
                 // Vérifier que le nouveau montant ne dépasse pas le total possible
-                $factureId = $paiement['id_facture'];
+                $id_facture = $paiement['id_facture'];
                 $ancienMontant = floatval($paiement['ancien_montant']);
                 
                 $sqlFacture = "SELECT montant_total, ristourne, montant_paye_total FROM facture WHERE id_facture = ?";
                 $stmtFacture = $conn->prepare($sqlFacture);
-                $stmtFacture->execute([$factureId]);
+                $stmtFacture->execute([$id_facture]);
                 $facture = $stmtFacture->fetch(PDO::FETCH_ASSOC);
                 
                 $montantTotal = floatval($facture['montant_total']) - floatval($facture['ristourne']);
@@ -621,19 +526,19 @@ class PaiementControleur {
             $updateFields = [];
             $params = [];
             
-            if (isset($data['datePaiement'])) {
+            if (isset($data['date_paiement'])) {
                 $updateFields[] = "date_paiement = ?";
-                $params[] = $data['datePaiement'];
+                $params[] = $data['date_paiement'];
             }
             
-            if (isset($data['montantPaye'])) {
+            if (isset($data['montant_paye'])) {
                 $updateFields[] = "montant_paye = ?";
-                $params[] = $data['montantPaye'];
+                $params[] = $data['montant_paye'];
             }
             
-            if (isset($data['methodePaiement'])) {
+            if (isset($data['methode_paiement'])) {
                 $updateFields[] = "methode_paiement = ?";
-                $params[] = $data['methodePaiement'];
+                $params[] = $data['methode_paiement'];
             }
             
             if (isset($data['commentaire'])) {
@@ -656,7 +561,7 @@ class PaiementControleur {
             return [
                 'success' => true,
                 'message' => 'Paiement modifié avec succès',
-                'paiementId' => $id_paiement
+                'id_paiement' => $id_paiement
             ];
             
         } catch (PDOException $e) {

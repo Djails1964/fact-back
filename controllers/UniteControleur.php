@@ -1,5 +1,5 @@
 <?php
-// controllers/UniteControleur.php
+// controllers/UniteControleur.php - VERSION CORRIGÉE
 
 require_once __DIR__ . '/base/DatabaseHelpers.php';
 require_once __DIR__ . '/base/UsageChecker.php';
@@ -14,23 +14,40 @@ class UniteControleur {
     }
     
     public function getAll(): array {
-        $sql = "SELECT id as id_unite, code, nom, description FROM unites ORDER BY nom";
+        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
+        $sql = "SELECT 
+                    id as id_unite, 
+                    code as code_unite, 
+                    nom as nom_unite, 
+                    description as description_unite 
+                FROM unites ORDER BY nom";
         return $this->fetchAll($sql);
     }
     
-    public function getById(int $id): ?array {
-        $sql = "SELECT id as id_unite, code, nom, description FROM unites WHERE id = ?";
-        return $this->fetchOne($sql, [$id]);
+    public function getById(int $id_unite): ?array {
+        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
+        $sql = "SELECT 
+                    id as id_unite, 
+                    code as code_unite, 
+                    nom as nom_unite, 
+                    description as description_unite 
+                FROM unites WHERE id = ?";
+        return $this->fetchOne($sql, [$id_unite]);
     }
     
-    public function getByService(int $serviceId): array {
-        $sql = "SELECT u.id as id_unite, u.code, u.nom, u.description 
+    public function getByService(int $id_service): array {
+        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
+        $sql = "SELECT 
+                    u.id as id_unite, 
+                    u.code as code_unite, 
+                    u.nom as nom_unite, 
+                    u.description as description_unite 
                 FROM unites u 
                 JOIN services_unites su ON u.id = su.unite_id 
                 WHERE su.service_id = ? AND su.actif = 1 
                 ORDER BY u.nom";
         
-        return $this->fetchAll($sql, [$serviceId]);
+        return $this->fetchAll($sql, [$id_service]);
     }
     
     public function getServicesUnites(): array {
@@ -38,50 +55,53 @@ class UniteControleur {
         return $this->fetchAll($sql);
     }
     
-    public function getUniteDefaultForService(int $serviceId): ?int {
+    public function getUniteDefaultForService(int $id_service): ?int {
         $sql = "SELECT unite_id FROM services_unites 
                 WHERE service_id = ? AND isDefault = 1 
                 LIMIT 1";
         
-        $result = $this->fetchOne($sql, [$serviceId]);
+        $result = $this->fetchOne($sql, [$id_service]);
         return $result ? (int)$result['unite_id'] : null;
     }
     
     public function create(array $data): int {
+        // ✅ CORRECTION: Adapter aux nouveaux noms de champs reçus du frontend
         $sql = "INSERT INTO unites (code, nom, description) VALUES (?, ?, ?)";
         $this->executeQuery($sql, [
-            $data['code'],
-            $data['nom'],
-            $data['description'] ?? null
+            $data['code_unite'] ?? $data['code'] ?? null,
+            $data['nom_unite'] ?? $data['nom'] ?? null,
+            $data['description_unite'] ?? $data['description'] ?? null
         ]);
         
-        $uniteId = $this->getLastInsertId();
+        $id_unite = $this->getLastInsertId();
         
         // Si un service est spécifié, créer la liaison
-        if (isset($data['service_id'])) {
-            $this->linkToService($uniteId, $data['service_id'], $data['isDefault'] ?? false);
+        if (isset($data['service_id']) || isset($data['id_service'])) {
+            $id_service = $data['service_id'] ?? $data['id_service'];
+            $this->linkToService($id_unite, $id_service, $data['isDefault'] ?? false);
         }
         
-        return $uniteId;
+        return $id_unite;
     }
     
-    public function update(int $id, array $data): bool {
+    public function update(int $id_unite, array $data): bool {
         $setFields = [];
         $params = [];
         
-        if (isset($data['code'])) {
+        // ✅ CORRECTION: Support des deux formats de noms de champs
+        if (isset($data['code_unite']) || isset($data['code'])) {
             $setFields[] = "code = ?";
-            $params[] = $data['code'];
+            $params[] = $data['code_unite'] ?? $data['code'];
         }
         
-        if (isset($data['nom'])) {
+        if (isset($data['nom_unite']) || isset($data['nom'])) {
             $setFields[] = "nom = ?";
-            $params[] = $data['nom'];
+            $params[] = $data['nom_unite'] ?? $data['nom'];
         }
         
-        if (isset($data['description'])) {
+        if (isset($data['description_unite']) || isset($data['description'])) {
             $setFields[] = "description = ?";
-            $params[] = $data['description'];
+            $params[] = $data['description_unite'] ?? $data['description'];
         }
         
         if (empty($setFields)) {
@@ -89,39 +109,40 @@ class UniteControleur {
         }
         
         $sql = "UPDATE unites SET " . implode(", ", $setFields) . " WHERE id = ?";
-        $params[] = $id;
+        $params[] = $id_unite;
         
         $stmt = $this->executeQuery($sql, $params);
         
         // Gestion du champ isDefault au niveau de la relation service-unité
-        if (isset($data['isDefault']) && isset($data['service_id'])) {
-            $this->updateServiceUniteDefault($data['service_id'], $id, $data['isDefault']);
+        if (isset($data['isDefault']) && isset($data['id_service'])) {
+            $id_service = $data['id_service'];
+            $this->updateServiceUniteDefault($id_service, $id_unite, $data['isDefault']);
         }
         
         return $stmt->rowCount() > 0;
     }
     
-    public function delete(int $id): array {
+    public function delete(int $id_unite): array {
         // Vérifier l'usage
-        $usageCheck = $this->checkUsage($id);
-        
+        $usageCheck = $this->checkUsage($id_unite);
+
         if ($usageCheck['isUsed']) {
             throw new Exception('Impossible de supprimer cette unité car elle est utilisée dans des tarifs ou des liaisons');
         }
-        
-        $stmt = $this->executeQuery("DELETE FROM unites WHERE id = ?", [$id]);
+
+        $stmt = $this->executeQuery("DELETE FROM unites WHERE id = ?", [$id_unite]);
         
         return [
             'success' => true,
             'message' => 'L\'unité a été supprimée avec succès'
         ];
     }
-    
-    public function linkToService(int $uniteId, int $serviceId, bool $isDefault = false): bool {
+
+    public function linkToService(int $id_unite, int $id_service, bool $isDefault = false): bool {
         // Vérifier si la liaison existe déjà
         $existingLink = $this->fetchOne(
             "SELECT id, actif FROM services_unites WHERE service_id = ? AND unite_id = ?",
-            [$serviceId, $uniteId]
+            [$id_service, $id_unite]
         );
         
         if ($existingLink) {
@@ -132,21 +153,21 @@ class UniteControleur {
         } else {
             // Créer une nouvelle liaison
             $sql = "INSERT INTO services_unites (service_id, unite_id, actif, isDefault) VALUES (?, ?, 1, ?)";
-            $this->executeQuery($sql, [$serviceId, $uniteId, $isDefault ? 1 : 0]);
+            $this->executeQuery($sql, [$id_service, $id_unite, $isDefault ? 1 : 0]);
         }
         
         // Si c'est par défaut, désactiver les autres
         if ($isDefault) {
-            $this->updateServiceUniteDefault($serviceId, $uniteId, true);
+            $this->updateServiceUniteDefault($id_service, $id_unite, true);
         }
         
         return true;
     }
-    
-    public function unlinkFromService(int $uniteId, int $serviceId): array {
+
+    public function unlinkFromService(int $id_unite, int $id_service): array {
         // Vérifier d'abord si cette liaison est utilisée dans des factures
-        $checkFacture = $this->checkServiceUniteUsageInFacture($serviceId, $uniteId);
-        
+        $checkFacture = $this->checkServiceUniteUsageInFacture($id_service, $id_unite);
+
         if ($checkFacture['isUsed']) {
             return [
                 'success' => false,
@@ -161,14 +182,14 @@ class UniteControleur {
              UNION 
              SELECT 1 FROM tarifs_speciaux WHERE service_id = ? AND unite_id = ? 
              LIMIT 1",
-            [$serviceId, $uniteId, $serviceId, $uniteId]
+            [$id_service, $id_unite, $id_service, $id_unite]
         );
         
         if ($checkTarifs) {
             // Désactiver la liaison
             $this->executeQuery(
                 "UPDATE services_unites SET actif = 0 WHERE service_id = ? AND unite_id = ?",
-                [$serviceId, $uniteId]
+                [$id_service, $id_unite]
             );
             
             return [
@@ -180,7 +201,7 @@ class UniteControleur {
             // Supprimer la liaison
             $this->executeQuery(
                 "DELETE FROM services_unites WHERE service_id = ? AND unite_id = ?",
-                [$serviceId, $uniteId]
+                [$id_service, $id_unite]
             );
             
             return [
@@ -190,25 +211,25 @@ class UniteControleur {
             ];
         }
     }
-    
-    public function updateServiceUniteDefault(int $serviceId, int $uniteId, bool $isDefault = true): array {
+
+    public function updateServiceUniteDefault(int $id_service, int $id_unite, bool $isDefault = true): array {
         if ($isDefault) {
             // Désactiver toutes les autres unités par défaut pour ce service
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 0 WHERE service_id = ?",
-                [$serviceId]
+                [$id_service]
             );
             
             // Définir la nouvelle unité par défaut
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 1 WHERE service_id = ? AND unite_id = ?",
-                [$serviceId, $uniteId]
+                [$id_service, $id_unite]
             );
         } else {
             // Désactiver cette unité comme défaut
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 0 WHERE service_id = ? AND unite_id = ?",
-                [$serviceId, $uniteId]
+                [$id_service, $id_unite]
             );
         }
         
@@ -223,12 +244,12 @@ class UniteControleur {
             'services_unites', 'tarifs', 'tarifs_speciaux'
         ]);
     }
-    
-    public function checkServiceUniteUsageInFacture(int $serviceId, int $uniteId): array {
+
+    public function checkServiceUniteUsageInFacture(int $id_service, int $id_unite): array {
         $sql = "SELECT COUNT(*) as total FROM lignesfacture 
                 WHERE service_id = ? AND unite_id = ?";
-        
-        $result = $this->fetchOne($sql, [$serviceId, $uniteId]);
+
+        $result = $this->fetchOne($sql, [$id_service, $id_unite]);
         $count = (int)$result['total'];
         $isUsed = $count > 0;
         

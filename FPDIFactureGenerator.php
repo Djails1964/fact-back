@@ -27,13 +27,36 @@ require_once 'PDFGeneratorInterface.php';
     }
     
     public function getNumLines($text, $width) {
-        // Obtention de la largeur de chaque caractère dans la police actuelle
+        error_log("=== DEBUG getNumLines ===");
+        error_log("Texte: " . substr($text, 0, 50) . "...");
+        error_log("Width demandée: " . $width);
+        
         $cw = $this->CurrentFont['cw'];
+        
+        // CORRECTION : Vérifier le type de $cw
+        if (!is_array($cw)) {
+            error_log("ERREUR: CurrentFont['cw'] n'est pas un tableau, type: " . gettype($cw));
+            error_log("Contenu de cw: " . substr(print_r($cw, true), 0, 100));
+            
+            // Utiliser une police de base comme fallback
+            $this->SetFont('Arial', '', 10);
+            $cw = $this->CurrentFont['cw'];
+            
+            if (!is_array($cw)) {
+                error_log("ERREUR CRITIQUE: Même Arial ne charge pas correctement");
+                error_log("=== FIN DEBUG getNumLines (ERREUR) ===");
+                return 1; // Fallback sécurisé
+            }
+        }
+        
         if ($width == 0) {
             return 1;
         }
         
-        $wmax = $width * 1000 / $this->FontSize;
+        $wmax = $width * 1000 / $this->FontSizePt;
+        error_log("wmax calculé: " . $wmax);
+        error_log("Nombre d'entrées dans cw: " . count($cw));
+        
         $s = str_replace("\r", '', $text);
         $nb = strlen($s);
         if ($nb > 0 && $s[$nb-1] == "\n") {
@@ -46,9 +69,20 @@ require_once 'PDFGeneratorInterface.php';
         $l = 0.0;
         $nl = 1;
         
+        // NOUVEAU DEBUG : Tester les premières largeurs de caractères
+        error_log("Longueur texte: " . $nb);
+        $testWidth = 0;
+        for ($test = 0; $test < min(20, $nb); $test++) {
+            $char = $s[$test];
+            $charWidth = isset($cw[ord($char)]) ? floatval($cw[ord($char)]) : 0;
+            $testWidth += $charWidth;
+            error_log("Char[$test] = '$char' (ASCII:" . ord($char) . ") width: $charWidth, cumul: $testWidth");
+        }
+        
         while ($i < $nb) {
             $c = $s[$i];
             if ($c == "\n") {
+                error_log("Retour ligne détecté à position $i");
                 $i++;
                 $sep = -1;
                 $j = $i;
@@ -59,23 +93,34 @@ require_once 'PDFGeneratorInterface.php';
             if ($c == ' ') {
                 $sep = $i;
             }
-            $l += isset($cw[ord($c)]) ? floatval($cw[ord($c)]) : 0;
+            
+            $charWidth = isset($cw[ord($c)]) ? floatval($cw[ord($c)]) : 0;
+            $l += $charWidth;
+            
+            // DEBUG : Logger quand on dépasse
             if ($l > $wmax) {
+                error_log("DÉPASSEMENT à position $i, caractère '$c', largeur cumulative: $l > $wmax");
                 if ($sep == -1) {
+                    error_log("Pas d'espace trouvé, coupe forcée");
                     if ($i == $j) {
                         $i++;
                     }
                 } else {
+                    error_log("Coupe à l'espace position $sep");
                     $i = $sep + 1;
                 }
                 $sep = -1;
                 $j = $i;
                 $l = 0;
                 $nl++;
+                error_log("Nouvelle ligne créée, nl = $nl");
             } else {
                 $i++;
             }
         }
+        
+        error_log("Résultat final: " . $nl);
+        error_log("=== FIN DEBUG getNumLines ===");
         return $nl;
     }
 
@@ -260,7 +305,6 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
      * @param int $delaiPaiement Délai de paiement en jours
      * @return bool Retourne true si la génération a réussi
      */
-    
     public function genererPDF($facture, $pdfFileName, $outputDir = null, $relationsBancaires = [], $delaiPaiement = 30, $signature = [], $printRistourne = false) {
         
         // Debug : vérifier les classes disponibles
@@ -268,6 +312,7 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
         error_log("- class_exists('FPDI'): " . (class_exists('FPDI') ? 'OUI' : 'NON'));
         error_log("- class_exists('setasign\\Fpdi\\Fpdi'): " . (class_exists('setasign\\Fpdi\\Fpdi') ? 'OUI' : 'NON'));
         error_log("- class_exists('Fpdi'): " . (class_exists('Fpdi') ? 'OUI' : 'NON'));
+        error_log("genererPDF - Facture reçue: " . json_encode($facture));   
         
         // Obtenir les lignes de la facture
         $lignes = $facture['lignes'];
@@ -292,6 +337,8 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
             $this->totalPages = ceil($nombreLignes / $maxLignesParPage);
             error_log("🔢 Nombre total de pages calculé simplement: " . $this->totalPages);
         }
+
+        error_log("📄 Génération du PDF pour la facture " . $facture['numero_facture'] . " avec " . $nombreLignes . " lignes sur " . $this->totalPages . " pages.");
         
         // Tableau pour stocker les chemins des PDF temporaires
         $tempPDFFiles = [];
@@ -302,8 +349,6 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
         
         // Traiter chaque page
         for ($pageActuelle = 1; $pageActuelle <= $this->totalPages; $pageActuelle++) {
-            error_log("🔄 === GÉNÉRATION PAGE $pageActuelle/{$this->totalPages} ===");
-            
             // Créer un nouveau PDF pour cette page
             $pdf = new MyFPDI('P', 'mm', 'A4', true, 'UTF-8');
             $pdf->AddPage();
@@ -385,66 +430,29 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
                 $pdf->Ln(2);
             }
             
-            // ✅ LOGIQUE CORRIGÉE : Calculer les lignes pour cette page
-            $lignesRestantes = array_slice($lignes, $lignesTraitees);
-            $nombreLignesRestantes = count($lignesRestantes);
-            
-            error_log("📋 Page $pageActuelle - Lignes restantes à traiter: $nombreLignesRestantes");
-            error_log("📋 Page $pageActuelle - Lignes déjà traitées: $lignesTraitees");
-            
-            // Déterminer si c'est vraiment la dernière page
-            $estVraimentDernierePage = ($lignesTraitees + $nombreLignesRestantes == $nombreLignes);
-            
-            if ($estVraimentDernierePage) {
-                // C'est potentiellement la dernière page, calculer avec les totaux
-                if (method_exists($this, 'calculerEspaceDisponible') && method_exists($this, 'calculerNombreLignesQuiTiennent')) {
-                    try {
-                        $espaceDisponible = $this->calculerEspaceDisponible($pdf, $facture, $relationsBancaires, ($pageActuelle == 1));
-                        $espaceRestantApresEnTetes = $espaceDisponible - ($pdf->GetY() - $startY);
-                        $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent($pdf, $lignesRestantes, $espaceRestantApresEnTetes, true);
-                        
-                        error_log("📋 Page $pageActuelle (FINALE TENTATIVE): {$lignesQuiTiennent} lignes avec totaux");
-                        
-                        // Vérifier si toutes les lignes tiennent vraiment
-                        if ($lignesQuiTiennent < $nombreLignesRestantes) {
-                            error_log("⚠️ CORRECTION: Toutes les lignes ne tiennent pas, ce n'est pas la dernière page");
-                            $estVraimentDernierePage = false;
-                            $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent($pdf, $lignesRestantes, $espaceRestantApresEnTetes, false);
-                            error_log("📋 Page $pageActuelle (INTERMÉDIAIRE): {$lignesQuiTiennent} lignes sans totaux");
-                        }
-                    } catch (Exception $e) {
-                        error_log("⚠️ Erreur calcul dynamique lignes, utilisation méthode simple: " . $e->getMessage());
-                        $lignesQuiTiennent = min($maxLignesParPage, $nombreLignesRestantes);
-                    }
-                } else {
-                    // Méthode simple
-                    $lignesQuiTiennent = min($maxLignesParPage, $nombreLignesRestantes);
-                    error_log("📋 Page $pageActuelle: calcul simple - {$lignesQuiTiennent} lignes");
+            // Calculer les lignes pour cette page
+            // Utiliser la méthode dynamique si disponible, sinon méthode simple
+            error_log("Calcul des lignes pour la page $pageActuelle");
+            if (method_exists($this, 'calculerNombreLignesQuiTiennent') && method_exists($this, 'calculerEspaceDisponible')) {
+                try {
+                    $espaceDisponible = $this->calculerEspaceDisponible($pdf, $facture, $relationsBancaires, ($pageActuelle == 1));
+                    $lignesRestantes = array_slice($lignes, $lignesTraitees);
+                    $espaceRestantApresEnTetes = $espaceDisponible - ($pdf->GetY() - $startY);
+                    $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent($pdf, $lignesRestantes, $espaceRestantApresEnTetes, false);
+                    error_log("📋 Page $pageActuelle: calcul dynamique - {$lignesQuiTiennent} lignes peuvent tenir");
+                } catch (Exception $e) {
+                    error_log("⚠️ Erreur calcul dynamique lignes, utilisation méthode simple: " . $e->getMessage());
+                    $lignesQuiTiennent = min($maxLignesParPage, $nombreLignes - $lignesTraitees);
                 }
             } else {
-                // Page intermédiaire
-                if (method_exists($this, 'calculerEspaceDisponible') && method_exists($this, 'calculerNombreLignesQuiTiennent')) {
-                    try {
-                        $espaceDisponible = $this->calculerEspaceDisponible($pdf, $facture, $relationsBancaires, ($pageActuelle == 1));
-                        $espaceRestantApresEnTetes = $espaceDisponible - ($pdf->GetY() - $startY);
-                        $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent($pdf, $lignesRestantes, $espaceRestantApresEnTetes, false);
-                        
-                        error_log("📋 Page $pageActuelle (INTERMÉDIAIRE): {$lignesQuiTiennent} lignes sans totaux");
-                    } catch (Exception $e) {
-                        error_log("⚠️ Erreur calcul dynamique, utilisation méthode simple: " . $e->getMessage());
-                        $lignesQuiTiennent = min($maxLignesParPage, $nombreLignesRestantes);
-                    }
-                } else {
-                    // Méthode simple
-                    $lignesQuiTiennent = min($maxLignesParPage, $nombreLignesRestantes);
-                    error_log("📋 Page $pageActuelle: calcul simple - {$lignesQuiTiennent} lignes");
-                }
+                // Méthode simple
+                $lignesQuiTiennent = min($maxLignesParPage, $nombreLignes - $lignesTraitees);
+                error_log("📋 Page $pageActuelle: calcul simple - {$lignesQuiTiennent} lignes");
             }
             
             // Calculer l'index de fin pour les lignes de cette page
             $endIndex = min($lignesTraitees + $lignesQuiTiennent - 1, $nombreLignes - 1);
-            
-            error_log("📋 Page $pageActuelle - Index fin: $endIndex (ligne " . ($endIndex + 1) . ")");
+            $estDernierePage = ($endIndex == $nombreLignes - 1);
             
             // Générer les lignes pour cette page
             error_log("Génération des lignes de détail pour la page $pageActuelle (lignes " . ($lignesTraitees + 1) . " à " . ($endIndex + 1) . ")");
@@ -457,13 +465,10 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
             // Mettre à jour le nombre de lignes traitées
             $lignesTraitees = $endIndex + 1;
             
-            error_log("📋 Page $pageActuelle - Lignes traitées maintenant: $lignesTraitees");
-            error_log("📋 Page $pageActuelle - Est vraiment dernière page: " . ($estVraimentDernierePage ? 'OUI' : 'NON'));
-            
-            // Gestion de la fin de page
-            if ($estVraimentDernierePage && $lignesTraitees >= $nombreLignes) {
-                // Générer les totaux finaux
-                error_log("✅ Page $pageActuelle - Génération des totaux finaux");
+            // Si c'est la dernière page
+            if ($estDernierePage) {
+                // Générer les totaux
+                error_log("Génération des totaux pour la page $pageActuelle");
                 $this->genererLignesTotal($pdf, $facture, $printRistourne);
                 error_log("Totaux générés pour la page $pageActuelle");
                 
@@ -477,8 +482,7 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
                 $this->genererPiedPage($pdf, $relationsBancaires, $delaiPaiement, $signature);
                 error_log("Pied de page généré pour la page $pageActuelle");
             } else {
-                // Page intermédiaire - Ajouter "Montant à reporter"
-                error_log("➡️ Page $pageActuelle - Génération du report");
+                // Sinon, ajouter "Montant à reporter"
                 $montantFormate = number_format($montantReport, 2, '.', "'");
                 $pdf->SetX($this->textStartX);
                 $pdf->SetFont($this->fontRegular, '', 10);
@@ -551,8 +555,6 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
                     return false;
                 }
             }
-            
-            error_log("📄 Page $pageActuelle sauvegardée");
         }
         
         // Fusionner tous les PDF en un seul
@@ -705,24 +707,110 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
 
     /**
      * Calcule l'espace nécessaire pour une ligne de détail
+     * Fonctionne avec ou sans objet PDF
      * 
-     * @param FPDI $pdf L'objet PDF
+     * @param FPDI|null $pdf L'objet PDF (peut être null pour estimation)
      * @param array $ligne Données de la ligne
      * @return float Hauteur estimée en mm
      */
     private function calculerHauteurLigne($pdf, $ligne) {
-        // Préparer le texte de description complet (description + description_dates)
-        $descriptionComplete = $ligne['description'];
+        error_log("=== Calcul de la hauteur de la ligne ===");
+        error_log("Ligne reçue: " . json_encode($ligne));
+        error_log("PDF disponible: " . ($pdf ? "oui" : "non"));
+        error_log("is_array(ligne): " . (is_array($ligne) ? "oui" : "non"));
         
-        // Si description_dates existe et n'est pas vide, l'ajouter avec un retour à la ligne
-        if (isset($ligne['description_dates']) && !empty($ligne['description_dates'])) {
+        // Vérification de sécurité
+        if (!$ligne || !is_array($ligne)) {
+            return 12; // Hauteur par défaut
+        }
+        
+        // Préparer le texte de description complet
+        $descriptionComplete = isset($ligne['description']) ? $ligne['description'] : '';
+        
+        if (isset($ligne['description_dates']) && !empty(trim($ligne['description_dates']))) {
             $descriptionComplete .= "\n" . $ligne['description_dates'];
         }
         
-        $nbLines = $pdf->getNumLines($descriptionComplete, $this->descriptionWidth);
+        if (empty(trim($descriptionComplete))) {
+            return 12;
+        }
+        
+        // SOLUTION : Utiliser TOUJOURS la simulation qui fonctionne
+        $nbLines = $this->simulerGetNumLines($descriptionComplete);
+        error_log("Nombre de lignes via simulation: " . $nbLines);
+        
+        // Appliquer le même algorithme de calcul de hauteur
         $hauteurLigne = ($nbLines > 1) ? ($nbLines * 5 + 4) : 10;
-        // Ajouter 2mm d'espacement entre les lignes
+        error_log("Hauteur de ligne calculée: " . $hauteurLigne . " mm");
+        error_log("=== Fin du calcul de la hauteur de ligne ===");
+
         return $hauteurLigne + 2;
+    }
+
+    /**
+     * Simule le comportement de getNumLines() sans objet PDF
+     * 
+     * @param string $texte Le texte à analyser
+     * @return int Nombre de lignes nécessaires
+     */
+    private function simulerGetNumLines($texte) {
+        error_log("=== Simulation du nombre de lignes (version améliorée) ===");
+        error_log("Texte reçu: " . $texte);
+        
+        if (empty(trim($texte))) {
+            return 1;
+        }
+        
+        // Largeur disponible en mm
+        $largeurColonne = $this->descriptionWidth ?? 100;
+        error_log("Largeur disponible: " . $largeurColonne . "mm");
+        
+        // Créer un objet PDF temporaire pour les calculs de largeur
+        // Utiliser la même configuration que le PDF principal
+        $tempPdf = new MyFPDI('P', 'mm', 'A4');
+        $tempPdf->AddPage();
+        $tempPdf->SetFont($this->fontRegular, '', 10); // Même police que les détails
+        
+        // Séparer par les retours à la ligne explicites
+        $paragraphes = explode("\n", $texte);
+        $totalLignes = 0;
+        
+        foreach ($paragraphes as $paragraphe) {
+            if (empty(trim($paragraphe))) {
+                $totalLignes += 1; // Ligne vide
+                continue;
+            }
+            
+            // Calculer le word wrapping pour ce paragraphe avec mesure précise
+            $mots = explode(' ', trim($paragraphe));
+            $ligneActuelle = '';
+            $lignesParagraphe = 1; // Au moins une ligne
+            
+            foreach ($mots as $mot) {
+                $testLigne = empty($ligneActuelle) ? $mot : $ligneActuelle . ' ' . $mot;
+                
+                // Mesurer la largeur réelle du texte en mm
+                $largeurTexte = $tempPdf->GetStringWidth($testLigne);
+                error_log("Test ligne: '$testLigne' -> Largeur: {$largeurTexte}mm");
+                
+                if ($largeurTexte <= $largeurColonne) {
+                    // Le texte tient sur la ligne actuelle
+                    $ligneActuelle = $testLigne;
+                } else {
+                    // Le texte dépasse, passer à la ligne suivante
+                    $lignesParagraphe++;
+                    $ligneActuelle = $mot; // Commencer une nouvelle ligne avec ce mot
+                }
+            }
+            
+            $totalLignes += $lignesParagraphe;
+            error_log("Paragraphe '{$paragraphe}' -> {$lignesParagraphe} lignes");
+        }
+        
+        error_log("Total lignes calculées: " . $totalLignes);
+        error_log("=== Fin simulation améliorée ===");
+        
+        return $totalLignes;
     }
 
     /**
@@ -1341,21 +1429,21 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
      * @return float Hauteur totale en mm
      */
     private function calculerHauteurEnTete($facture) {
+        error_log('=== CALCULER HAUTEUR EN TETE ===');
         $hauteur = 0;
         
         // Logo et date (20mm depuis le haut)
         $hauteur += 20;
         
-        // ✅ CALCUL PLUS PRÉCIS de l'adresse du centre
-        $hauteur += 15; // 3 lignes de 5mm chacune
-        $hauteur += 5;  // Espacement après l'adresse
+        // Adresse du centre (3 lignes de 5mm + espacement de 5mm)
+        $hauteur += (3 * 5) + 5 + 10; // = 25mm (ajout de 2 lignes vides supplémentaires)
         
         // Tampon si présent (pour factures Payées/Annulées)
         if (isset($facture['etat']) && ($facture['etat'] === 'Payée' || $facture['etat'] === 'Annulée')) {
-            $hauteur += 10; // Réduit de 15 à 10mm
+            $hauteur += 15; // Espacement après le tampon
         }
         
-        // ✅ CALCUL PLUS PRÉCIS de l'adresse du client
+        // Adresse du client (titre + nom + adresse + ligne vide + code postal/localité)
         $lignesClient = 0;
         if (!empty(trim($facture['titre']))) {
             $lignesClient += 1; // Titre
@@ -1363,16 +1451,15 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
         $lignesClient += 4; // nom, rue+numéro, ligne vide, code postal+localité
         $hauteur += $lignesClient * 5; // = 20-25mm selon si titre présent
         
-        // ✅ RÉDUCTION des espaces
-        $hauteur += 10; // Réduit de 20 à 10mm
+        // Lignes vides ajoutées
+        $hauteur += 10; // 2 lignes vides avant le titre (Ln(10))
         
         // Titre de la facture
         $hauteur += 5; // hauteur du titre
         
         // Ligne vide après le titre
-        $hauteur += 5; // Ligne vide après le titre
+        $hauteur += 5; // Ligne vide après le titre (Ln(5))
         
-        error_log("🏠 Hauteur en-tête calculée: {$hauteur}mm");
         return $hauteur;
     }
 
@@ -1383,13 +1470,14 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
      * @return float Hauteur totale en mm (contenu + espacement + marge)
      */
     private function calculerHauteurPiedPage($relationsBancaires = []) {
-        // ✅ CALCUL PLUS RÉALISTE du contenu du pied de page
+        error_log('=== CALCULER HAUTEUR PIED DE PAGE ===');
+        // Calculer la hauteur du contenu du pied de page
         $beneficiaires = isset($relationsBancaires['Beneficiaire']) 
             ? explode(',', $relationsBancaires['Beneficiaire']) 
             : ['Johanna Cherbuin', 'Chemin du Châtelard 9', '1562 Corcelles-près-Payerne'];
         $beneficiaires = array_map('trim', $beneficiaires);
         
-        // Estimation plus précise de la hauteur du contenu
+        // Estimation de la hauteur du contenu
         $hauteurContenu = 0;
         $hauteurContenu += 7; // "Paiement net à X jours"
         $hauteurContenu += 7; // "Montant total à verser à :"
@@ -1403,10 +1491,9 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
         $hauteurContenu += 7; // Signature ligne 1
         $hauteurContenu += 7; // Signature ligne 2
         
-        // ✅ RÉDUCTION : Seulement 10mm d'espacement au lieu de 15mm + marge réduite
-        return $hauteurContenu + 10 + 15; // Total ≈ 75mm au lieu de 95mm
+        // Ajouter l'espacement de 15mm au-dessus de la marge du bas + la marge du bas (20mm)
+        return $hauteurContenu + 15 + 20;
     }
-
 
     /**
      * Calcule l'espace disponible sur une page pour le contenu
@@ -1418,6 +1505,7 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
      * @return float Espace disponible en mm
      */
     private function calculerEspaceDisponible($pdf, $facture, $relationsBancaires, $estPremierePage = true) {
+        error_log('=== CALCULER ESPACE DISPONIBLE ===');
         // Utiliser des valeurs par défaut si pas d'objet PDF
         $pageHeight = $pdf ? $pdf->getPageHeight() : 297; // A4 = 297mm
         $topMargin = $pdf ? $pdf->getMargins()['top'] : 20; // Marge par défaut 20mm
@@ -1447,69 +1535,29 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
      * @return int Nombre total de pages
      */
     private function calculerNombreTotalPages($facture, $relationsBancaires) {
+        error_log('=== CALCULER NOMBRE TOTAL PAGES ===');
         $lignes = $facture['lignes'];
         $pages = 1;
         $lignesTraitees = 0;
         
-        error_log("🔢 === CALCUL NOMBRE TOTAL DE PAGES ===");
-        error_log("🔢 Nombre de lignes à traiter: " . count($lignes));
-        
-        // ✅ VÉRIFICATION INITIALE : Si peu de lignes, probablement une seule page
-        if (count($lignes) <= 5) {
-            error_log("🔢 Peu de lignes détectées (" . count($lignes) . "), test d'une seule page");
-            
-            // Calculer si tout tient sur une page
-            $espaceDisponible = $this->calculerEspaceDisponible(null, $facture, $relationsBancaires, true);
-            $espaceContenu = $espaceDisponible - 14; // En-têtes et responsable
-            
-            $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent(null, $lignes, $espaceContenu, true);
-            
-            if ($lignesQuiTiennent >= count($lignes)) {
-                error_log("🔢 ✅ Toutes les lignes tiennent sur une seule page");
-                return 1;
-            } else {
-                error_log("🔢 ❌ Les lignes ne tiennent pas sur une seule page, calcul multi-pages");
-            }
-        }
-        
-        // Calcul standard pour les factures multi-pages
         while ($lignesTraitees < count($lignes)) {
-            $estPremierePage = ($pages == 1);
-            $espaceDisponible = $this->calculerEspaceDisponible(null, $facture, $relationsBancaires, $estPremierePage);
+            // Passer null comme PDF car on n'a pas encore d'objet PDF
+            $espaceDisponible = $this->calculerEspaceDisponible(null, $facture, $relationsBancaires, ($pages == 1));
             
             // Soustraire l'espace pour les en-têtes et responsable (environ 14mm)
             $espaceContenu = $espaceDisponible - 14;
             
             $lignesRestantes = array_slice($lignes, $lignesTraitees);
-            $nombreLignesRestantes = count($lignesRestantes);
+            // Passer null comme PDF car on n'a pas encore d'objet PDF
+            $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent(null, $lignesRestantes, $espaceContenu, false);
             
-            error_log("📄 Page $pages - Espace disponible: {$espaceContenu}mm - Lignes restantes: $nombreLignesRestantes");
+            $lignesTraitees += $lignesQuiTiennent;
             
-            // Calcul amélioré : Vérifier si on peut tout mettre sur cette page
-            $estDernierePage = true; // Assumer que c'est la dernière page pour commencer
-            $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent(null, $lignesRestantes, $espaceContenu, $estDernierePage);
-            
-            error_log("📋 Tentative avec totaux: {$lignesQuiTiennent} lignes peuvent tenir");
-            
-            // Si toutes les lignes restantes tiennent avec les totaux, c'est bon
-            if ($lignesQuiTiennent >= $nombreLignesRestantes) {
-                error_log("✅ Toutes les lignes restantes tiennent sur cette page avec totaux");
-                $lignesTraitees = count($lignes); // Terminer
-            } else {
-                // Sinon, recalculer sans les totaux (page intermédiaire)
-                $lignesQuiTiennent = $this->calculerNombreLignesQuiTiennent(null, $lignesRestantes, $espaceContenu, false);
-                error_log("📋 Recalcul sans totaux: {$lignesQuiTiennent} lignes peuvent tenir");
-                
-                $lignesTraitees += $lignesQuiTiennent;
-                
-                if ($lignesTraitees < count($lignes)) {
-                    $pages++;
-                    error_log("➡️ Passage à la page suivante - Lignes traitées: $lignesTraitees/" . count($lignes));
-                }
+            if ($lignesTraitees < count($lignes)) {
+                $pages++;
             }
         }
         
-        error_log("🎯 Nombre total de pages calculé: $pages");
         return $pages;
     }
 
@@ -1525,51 +1573,39 @@ class FPDIFactureGenerator implements PDFGeneratorInterface {
     private function calculerNombreLignesQuiTiennent($pdf, $lignes, $espaceDisponible, $estDernierePage = false) {
         $espaceUtilise = 0;
         $nombreLignes = 0;
-        
-        // ✅ CALCUL PLUS RÉALISTE DE L'ESPACE RÉSERVÉ POUR LES TOTAUX
-        if ($estDernierePage) {
-            // Espace pour les totaux finaux (sans le pied de page qui est calculé séparément)
-            $espaceReserveTotaux = 15; // Réduit de 25 à 15mm
-            error_log("📊 Page finale - Espace réservé pour totaux: {$espaceReserveTotaux}mm");
-        } else {
-            // Espace pour "Montant à reporter"
-            $espaceReserveTotaux = 7; // Réduit de 10 à 7mm
-            error_log("📊 Page intermédiaire - Espace réservé pour report: {$espaceReserveTotaux}mm");
-        }
-        
-        error_log("📊 Espace total disponible: {$espaceDisponible}mm");
-        
+
+        error_log('=== CALCULER NOMBRE LIGNES QUI TIENNENT ===');
+        error_log('Espace disponible : ' . $espaceDisponible);
+        error_log('Lignes à traiter : ' . count($lignes));
+        error_log('estDernierePage : ' . ($estDernierePage ? 'oui' : 'non'));
+
+        // Si c'est la dernière page, réserver l'espace pour les totaux (environ 20mm)
+        $espaceReserveTotaux = $estDernierePage ? 20 : 7; // 7mm pour "Montant à reporter"
+        error_log('Espace réservé pour totaux : ' . $espaceReserveTotaux);
+
         for ($i = 0; $i < count($lignes); $i++) {
             // Calculer la hauteur de cette ligne
-            if ($pdf) {
-                $hauteurLigne = $this->calculerHauteurLigne($pdf, $lignes[$i]);
-            } else {
-                // ✅ ESTIMATION PLUS RÉALISTE ET MOINS CONSERVATIVE
-                $hauteurEstimee = 10; // Maintenir à 10mm (valeur réaliste)
-                if (isset($lignes[$i]['description_dates']) && !empty($lignes[$i]['description_dates'])) {
-                    $hauteurEstimee = 15; // Réduit de 18 à 15mm
-                }
-                $hauteurLigne = $hauteurEstimee;
-            }
+            $hauteurLigne = $this->calculerHauteurLigne($pdf, $lignes[$i]);
+            error_log('Hauteur ligne ' . ($i + 1) . ' : ' . $hauteurLigne);
             
             // Vérifier si cette ligne + les totaux tiennent encore
             $espaceAvecLigne = $espaceUtilise + $hauteurLigne + $espaceReserveTotaux;
+            error_log('Espace utilisé + ligne + totaux : ' . $espaceAvecLigne);
             
             if ($espaceAvecLigne <= $espaceDisponible) {
                 $espaceUtilise += $hauteurLigne;
                 $nombreLignes++;
-                error_log("📋 Ligne $i acceptée - Espace utilisé: {$espaceUtilise}mm + réservé: {$espaceReserveTotaux}mm = {$espaceAvecLigne}mm");
             } else {
-                error_log("📋 Ligne $i refusée - Dépassement: {$espaceAvecLigne}mm > {$espaceDisponible}mm");
+                error_log('Nombre de lignes qui tiennent : ' . $nombreLignes);
+                error_log('=== FIN CALCULER NOMBRE LIGNES QUI TIENNENT ===');
                 break;
             }
         }
         
-        // ✅ SÉCURITÉ : Au moins 1 ligne par page, mais pas plus que disponible
-        $resultat = max(1, min($nombreLignes, count($lignes)));
-        error_log("📋 Résultat final: {$resultat} lignes peuvent tenir sur {$espaceDisponible}mm");
-        
-        return $resultat;
+        // Au moins 1 ligne par page
+        error_log('Nombre de lignes qui tiennent : ' . $nombreLignes);
+        error_log('=== FIN CALCULER NOMBRE LIGNES QUI TIENNENT ===');
+        return max(1, $nombreLignes);
     }
 }
 

@@ -373,31 +373,47 @@ class ServiceFacture {
                 $serviceTarif = new ServiceTarif($this->conn);
                 
                 // Récupérer toutes les unités en une seule requête
-                error_log("Récupération des unités pour enrichissement des lignes de facture");
+                if (is_dev_mode()) {
+                    error_log("Récupération des unités pour enrichissement des lignes de facture");
+                }
                 $unitesResult = $serviceTarif->getUnites();
-                error_log("Résultat de la récupération des unités: " . json_encode($unitesResult));
+                if (is_dev_mode()) {
+                    error_log("Résultat de la récupération des unités: " . print_r($unitesResult, true));
+                }
                 $unites = [];
                 
                 if ($unitesResult['success']) {
                     // Créer un tableau indexé par ID pour faciliter la recherche
-                    foreach ($unitesResult['unites'] as $unite) {
-                        $unites[$unite['id']] = $unite;
+                    if (is_dev_mode()) {
+                        error_log("Indexation des unités par ID");
+                        error_log("Unités trouvées: " . count($unitesResult['unites']));
+                        error_log("Unités détails: " . print_r($unitesResult['unites'], true));
                     }
-                    
+                    foreach ($unitesResult['unites'] as $unite) {
+                        $unites[$unite['id_unite']] = $unite;
+                    }
+                    if (is_dev_mode()) {
+                        error_log("Unités indexées: " . print_r($unites, true));
+                    }
+
                     // Pour chaque ligne de la facture
                     foreach ($facture['lignes'] as $key => $ligne) {
                         // Vérifier si l'ID de l'unité est disponible et existe dans notre liste d'unités
-                        if (isset($ligne['unite_id']) && isset($unites[$ligne['unite_id']])) {
+                        if (is_dev_mode()) {
+                            error_log("Traitement de la ligne de facture: " . json_encode($ligne));
+                        }
+                        if (isset($ligne['id_unite']) && isset($unites[$ligne['id_unite']])) {
                             // Ajouter les informations de l'unité à la ligne de facture
-                            $facture['lignes'][$key]['unite_code'] = $unites[$ligne['unite_id']]['code'];
-                            $facture['lignes'][$key]['unite_nom'] = $unites[$ligne['unite_id']]['nom'];
+                            $facture['lignes'][$key]['unite'] = $unites[$ligne['id_unite']]['code_unite'];
                         }
                     }
                 }
             }
 
-            error_log("Facture après enrichissement des lignes: " . json_encode($facture));
-            
+            if (is_dev_mode()) {
+                error_log("Facture après enrichissement des lignes: " . json_encode($facture));
+            }
+
             // Récupérer l'année de la facture
             $annee = date('Y', strtotime($facture['date_facture']));
             

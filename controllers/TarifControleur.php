@@ -104,7 +104,7 @@ class TarifControleur {
      * ===============================
      */
     
-    public function getTarifsStandards(?int $serviceId = null, ?int $uniteId = null, ?int $typeTarifId = null, ?string $date = null): array {
+    public function getTarifsStandards(?int $id_service = null, ?int $id_unite = null, ?int $typeTarifId = null, ?string $date = null): array {
         $conditions = [];
         $params = [];
         
@@ -127,14 +127,14 @@ class TarifControleur {
                 JOIN types_tarifs tt ON t.type_tarif_id = tt.id
                 WHERE 1=1";
         
-        if ($serviceId !== null) {
+        if ($id_service !== null) {
             $conditions[] = "t.service_id = ?";
-            $params[] = $serviceId;
+            $params[] = $id_service;
         }
         
-        if ($uniteId !== null) {
+        if ($id_unite !== null) {
             $conditions[] = "t.unite_id = ?";
-            $params[] = $uniteId;
+            $params[] = $id_unite;
         }
         
         if ($typeTarifId !== null) {
@@ -153,12 +153,14 @@ class TarifControleur {
         }
         
         $sql .= " ORDER BY s.nom, u.nom, tt.nom, t.date_debut DESC";
+
+        error_log("Executing SQL for getTarifsStandards: $sql with params: " . implode(", ", $params));
         
         return $this->fetchAll($sql, $params);
     }
     
-    public function getAllTarifsStandards(?int $serviceId = null, ?int $uniteId = null, ?int $typeTarifId = null): array {
-        return $this->getTarifsStandards($serviceId, $uniteId, $typeTarifId, null);
+    public function getAllTarifsStandards(?int $id_service = null, ?int $id_unite = null, ?int $typeTarifId = null): array {
+        return $this->getTarifsStandards($id_service, $id_unite, $typeTarifId, null);
     }
     
     public function getTarifStandardById(int $id): ?array {
@@ -187,8 +189,8 @@ class TarifControleur {
     public function createTarifStandard(array $data): int {
         // Vérifier si un tarif existe déjà pour cette combinaison et cette période
         $existingTarif = $this->findExistingTarifStandard(
-            $data['service_id'],
-            $data['unite_id'],
+            $data['id_service'],
+            $data['id_unite'],
             $data['type_tarif_id'],
             $data['date_debut'] ?? date('Y-m-d'),
             $data['date_fin'] ?? null
@@ -208,8 +210,8 @@ class TarifControleur {
                 VALUES (?, ?, ?, ?, ?, ?)";
         
         $this->executeQuery($sql, [
-            $data['service_id'],
-            $data['unite_id'],
+            $data['id_service'],
+            $data['id_unite'],
             $data['type_tarif_id'],
             $data['prix'],
             $data['date_debut'] ?? date('Y-m-d'),
@@ -270,7 +272,7 @@ class TarifControleur {
                 FROM lignesfacture 
                 WHERE service_id = ? AND unite_id = ?";
         
-        $result = $this->fetchOne($sql, [$tarif['service_id'], $tarif['unite_id']]);
+        $result = $this->fetchOne($sql, [$tarif['id_service'], $tarif['id_unite']]);
         $count = (int)$result['total'];
         $isUsed = $count > 0;
         
@@ -284,12 +286,12 @@ class TarifControleur {
         ];
     }
     
-    private function findExistingTarifStandard(int $serviceId, int $uniteId, int $typeTarifId, string $dateDebut, ?string $dateFin): ?array {
+    private function findExistingTarifStandard(int $id_service, int $id_unite, int $typeTarifId, string $dateDebut, ?string $dateFin): ?array {
         $sql = "SELECT id FROM tarifs 
                 WHERE service_id = ? AND unite_id = ? AND type_tarif_id = ? 
                 AND date_debut <= ? AND (date_fin IS NULL OR date_fin >= ?)";
         
-        return $this->fetchOne($sql, [$serviceId, $uniteId, $typeTarifId, $dateDebut, $dateFin ?? $dateDebut]);
+        return $this->fetchOne($sql, [$id_service, $id_unite, $typeTarifId, $dateDebut, $dateFin ?? $dateDebut]);
     }
     
     /**
@@ -298,7 +300,7 @@ class TarifControleur {
      * ===============================
      */
     
-    public function getTarifsSpeciaux(?int $clientId = null, ?int $serviceId = null, ?int $uniteId = null, ?string $date = null): array {
+    public function getTarifsSpeciaux(?int $client_id = null, ?int $id_service = null, ?int $id_unite = null, ?string $date = null): array {
         $conditions = [];
         $params = [];
         
@@ -322,19 +324,19 @@ class TarifControleur {
                 JOIN unites u ON ts.unite_id = u.id
                 WHERE 1=1";
         
-        if ($clientId !== null) {
+        if ($client_id !== null) {
             $conditions[] = "ts.client_id = ?";
-            $params[] = $clientId;
+            $params[] = $client_id;
         }
         
-        if ($serviceId !== null) {
+        if ($id_service !== null) {
             $conditions[] = "ts.service_id = ?";
-            $params[] = $serviceId;
+            $params[] = $id_service;
         }
         
-        if ($uniteId !== null) {
+        if ($id_unite !== null) {
             $conditions[] = "ts.unite_id = ?";
-            $params[] = $uniteId;
+            $params[] = $id_unite;
         }
         
         if ($date !== null) {
@@ -352,8 +354,8 @@ class TarifControleur {
         return $this->fetchAll($sql, $params);
     }
     
-    public function getAllTarifsSpeciaux(?int $clientId = null, ?int $serviceId = null, ?int $uniteId = null): array {
-        return $this->getTarifsSpeciaux($clientId, $serviceId, $uniteId, null);
+    public function getAllTarifsSpeciaux(?int $client_id = null, ?int $id_service = null, ?int $id_unite = null): array {
+        return $this->getTarifsSpeciaux($client_id, $id_service, $id_unite, null);
     }
     
     public function getTarifSpecialById(int $id): ?array {
@@ -389,8 +391,8 @@ class TarifControleur {
         // Vérifier si un tarif spécial existe déjà 
         $existingTarif = $this->findExistingTarifSpecial(
             $data['client_id'],
-            $data['service_id'],
-            $data['unite_id'],
+            $data['id_service'],
+            $data['id_unite'],
             $data['date_debut'] ?? date('Y-m-d'),
             $data['date_fin'] ?? null
         );
@@ -410,8 +412,8 @@ class TarifControleur {
         
         $this->executeQuery($sql, [
             $data['client_id'],
-            $data['service_id'],
-            $data['unite_id'],
+            $data['id_service'],
+            $data['id_unite'],
             $data['prix'],
             $data['date_debut'] ?? date('Y-m-d'),
             $data['date_fin'] ?? null,
@@ -486,8 +488,8 @@ class TarifControleur {
         
         $result = $this->fetchOne($sql, [
             $tarifSpecial['client_id'], 
-            $tarifSpecial['service_id'], 
-            $tarifSpecial['unite_id']
+            $tarifSpecial['id_service'], 
+            $tarifSpecial['id_unite']
         ]);
         
         $count = (int)$result['total'];
@@ -503,12 +505,12 @@ class TarifControleur {
         ];
     }
     
-    private function findExistingTarifSpecial(int $clientId, int $serviceId, int $uniteId, string $dateDebut, ?string $dateFin): ?array {
+    private function findExistingTarifSpecial(int $client_id, int $id_service, int $id_unite, string $dateDebut, ?string $dateFin): ?array {
         $sql = "SELECT id FROM tarifs_speciaux 
                 WHERE client_id = ? AND service_id = ? AND unite_id = ? 
                 AND date_debut <= ? AND (date_fin IS NULL OR date_fin >= ?)";
         
-        return $this->fetchOne($sql, [$clientId, $serviceId, $uniteId, $dateDebut, $dateFin ?? $dateDebut]);
+        return $this->fetchOne($sql, [$client_id, $id_service, $id_unite, $dateDebut, $dateFin ?? $dateDebut]);
     }
     
     /**
@@ -517,9 +519,10 @@ class TarifControleur {
      * ===============================
      */
     
-    public function getTarifPourClient(int $clientId, int $serviceId, int $uniteId, string $date): array {
+    public function getTarifPourClient(int $client_id, int $id_service, int $id_unite, string $date): array {
+        error_log("Calcul du tarif pour client ID: $client_id, service ID: $id_service, unité ID: $id_unite, date: $date");
         // 1. Chercher un tarif spécial
-        $tarifSpecial = $this->findTarifSpecialForClient($clientId, $serviceId, $uniteId, $date);
+        $tarifSpecial = $this->findTarifSpecialForClient($client_id, $id_service, $id_unite, $date);
         if ($tarifSpecial) {
             return [
                 'success' => true,
@@ -529,11 +532,12 @@ class TarifControleur {
         }
         
         // 2. Déterminer le type de client et chercher un tarif standard
-        $estTherapeute = $this->isClientTherapeute($clientId);
+        $estTherapeute = $this->isClientTherapeute($client_id);
         $typeTarifCode = $estTherapeute ? 'therapeute' : 'normal';
-        
-        $tarifStandard = $this->findTarifStandardForClient($serviceId, $uniteId, $typeTarifCode, $date);
-        
+        error_log("Client ID: $client_id isTherapeute: " . ($estTherapeute ? 'yes' : 'no') . ", searching for type: $typeTarifCode");
+
+        $tarifStandard = $this->findTarifStandardForClient($id_service, $id_unite, $typeTarifCode, $date);
+
         if ($tarifStandard) {
             return [
                 'success' => true,
@@ -548,13 +552,13 @@ class TarifControleur {
         ];
     }
     
-    public function isClientTherapeute(int $clientId): bool {
+    public function isClientTherapeute(int $client_id): bool {
         $sql = "SELECT estTherapeute FROM client WHERE id = ?";
-        $result = $this->fetchOne($sql, [$clientId]);
+        $result = $this->fetchOne($sql, [$client_id]);
         return (bool)($result['estTherapeute'] ?? false);
     }
-    
-    public function clientPossedeTarifSpecial(int $clientId, ?string $date = null): bool {
+
+    public function clientPossedeTarifSpecial(int $client_id, ?string $date = null): bool {
         $date = $date ?: date('Y-m-d');
         
         $sql = "SELECT COUNT(*) as count FROM tarifs_speciaux 
@@ -562,69 +566,120 @@ class TarifControleur {
                 AND date_debut <= ? 
                 AND (date_fin IS NULL OR date_fin >= ?)";
         
-        $result = $this->fetchOne($sql, [$clientId, $date, $date]);
+        $result = $this->fetchOne($sql, [$client_id, $date, $date]);
         return (int)$result['count'] > 0;
     }
-    
-    public function getUnitesApplicablesPourClient(int $clientId, string $date): array {
-        // Déterminer le type de tarif approprié
-        $estTherapeute = $this->isClientTherapeute($clientId);
-        $typeTarifCode = $estTherapeute ? 'therapeute' : 'normal';
+
+    public function getUnitesApplicablesPourClient(int $client_id, string $date): array {
+        error_log("Fetching applicable units for client ID: $client_id on date: $date");
+        // Déterminer si le client est thérapeute
+        $estTherapeute = $this->isClientTherapeute($client_id);
+        error_log("Client ID: $client_id isTherapeute: " . ($estTherapeute ? 'yes' : 'no'));
         
-        // Récupérer l'ID du type de tarif
-        $typeTarif = $this->fetchOne("SELECT id FROM types_tarifs WHERE code = ?", [$typeTarifCode]);
-        $typeTarifId = $typeTarif ? (int)$typeTarif['id'] : 1; // Fallback sur ID 1 (normal)
-        
+        // ✅ CORRECTION PRINCIPALE: Requête avec logique de priorité correcte
         $sql = "
-            SELECT DISTINCT u.id as id_unite, 
-                   u.code as code_unite, 
-                   u.nom as nom_unite, 
-                   u.description as description_unite, 
-                   s.id as id_service, 
-                   s.code as code_service, 
-                   s.nom as nom_service,
-                   CASE 
-                       WHEN ts.unite_id IS NOT NULL THEN 'special'
-                       ELSE 'standard'
-                   END as type_tarif
+            SELECT DISTINCT 
+                u.id as id_unite, 
+                u.code as code_unite, 
+                u.nom as nom_unite, 
+                u.description as description_unite, 
+                s.id as id_service, 
+                s.code as code_service, 
+                s.nom as nom_service,
+                CASE 
+                    WHEN ts.prix IS NOT NULL THEN 'special'
+                    WHEN ? = 1 AND tt.prix IS NOT NULL THEN 'therapeute'
+                    WHEN tn.prix IS NOT NULL THEN 'standard'
+                    ELSE NULL
+                END as type_tarif_applicable,
+                CASE 
+                    WHEN ts.prix IS NOT NULL THEN ts.prix
+                    WHEN ? = 1 AND tt.prix IS NOT NULL THEN tt.prix
+                    WHEN tn.prix IS NOT NULL THEN tn.prix
+                    ELSE NULL
+                END as prix_applicable
             FROM unites u
             JOIN services_unites su ON u.id = su.unite_id AND su.actif = 1
             JOIN services s ON su.service_id = s.id AND s.actif = 1
+            
+            -- ✅ TARIFS SPÉCIAUX (priorité 1)
             LEFT JOIN (
-                SELECT t.unite_id, t.service_id 
-                FROM tarifs t
-                WHERE t.type_tarif_id = ?
-                AND t.date_debut <= ?
-                AND (t.date_fin IS NULL OR t.date_fin >= ?)
-            ) t ON u.id = t.unite_id AND t.service_id = s.id
-            LEFT JOIN (
-                SELECT ts.unite_id, ts.service_id
+                SELECT ts.unite_id, ts.service_id, ts.prix
                 FROM tarifs_speciaux ts
                 WHERE ts.client_id = ?
                 AND ts.date_debut <= ?
                 AND (ts.date_fin IS NULL OR ts.date_fin >= ?)
-            ) ts ON u.id = ts.unite_id AND ts.service_id = s.id
-            WHERE t.unite_id IS NOT NULL OR ts.unite_id IS NOT NULL
+            ) ts ON u.id = ts.unite_id AND s.id = ts.service_id
+            
+            -- ✅ TARIFS THÉRAPEUTE (priorité 2)
+            LEFT JOIN (
+                SELECT t.unite_id, t.service_id, t.prix
+                FROM tarifs t
+                JOIN types_tarifs typ ON t.type_tarif_id = typ.id
+                WHERE typ.code = 'therapeute'
+                AND t.date_debut <= ?
+                AND (t.date_fin IS NULL OR t.date_fin >= ?)
+            ) tt ON u.id = tt.unite_id AND s.id = tt.service_id
+            
+            -- ✅ TARIFS STANDARD (priorité 3)
+            LEFT JOIN (
+                SELECT t.unite_id, t.service_id, t.prix
+                FROM tarifs t
+                JOIN types_tarifs typ ON t.type_tarif_id = typ.id
+                WHERE typ.code = 'normal'
+                AND t.date_debut <= ?
+                AND (t.date_fin IS NULL OR t.date_fin >= ?)
+            ) tn ON u.id = tn.unite_id AND s.id = tn.service_id
+            
+            -- ✅ CONDITION: Au moins un tarif doit exister selon la priorité
+            WHERE (
+                ts.prix IS NOT NULL  -- Tarif spécial existe
+                OR (? = 1 AND tt.prix IS NOT NULL)  -- Client thérapeute ET tarif thérapeute existe
+                OR tn.prix IS NOT NULL  -- Tarif standard existe
+            )
             ORDER BY s.nom, u.nom
         ";
         
-        return $this->fetchAll($sql, [
-            $typeTarifId, $date, $date,
-            $clientId, $date, $date
-        ]);
+        $params = [
+            $estTherapeute ? 1 : 0,  // Pour CASE 1
+            $estTherapeute ? 1 : 0,  // Pour CASE 2
+            $client_id,               // Pour tarifs spéciaux
+            $date, $date,           // Pour tarifs spéciaux
+            $date, $date,           // Pour tarifs thérapeute
+            $date, $date,           // Pour tarifs standard
+            $estTherapeute ? 1 : 0   // Pour WHERE final
+        ];
+        
+        error_log("Executing corrected SQL for client units with priority logic");
+        error_log("Params: " . print_r($params, true));
+        
+        $results = $this->fetchAll($sql, $params);
+        
+        // ✅ LOG pour debug : afficher la logique appliquée
+        foreach ($results as $result) {
+            error_log(sprintf(
+                "Service: %s, Unité: %s => Tarif: %s (%.2f CHF)",
+                $result['nom_service'],
+                $result['nom_unite'],
+                $result['type_tarif_applicable'],
+                $result['prix_applicable'] ?? 0
+            ));
+        }
+        
+        return $results;
     }
     
-    private function findTarifSpecialForClient(int $clientId, int $serviceId, int $uniteId, string $date): ?array {
+    private function findTarifSpecialForClient(int $client_id, int $id_service, int $id_unite, string $date): ?array {
         $sql = "SELECT prix, 'special' as type 
                 FROM tarifs_speciaux 
                 WHERE client_id = ? AND service_id = ? AND unite_id = ? 
                 AND date_debut <= ? AND (date_fin IS NULL OR date_fin >= ?)
                 ORDER BY date_debut DESC LIMIT 1";
         
-        return $this->fetchOne($sql, [$clientId, $serviceId, $uniteId, $date, $date]);
+        return $this->fetchOne($sql, [$client_id, $id_service, $id_unite, $date, $date]);
     }
     
-    private function findTarifStandardForClient(int $serviceId, int $uniteId, string $typeTarifCode, string $date): ?array {
+    private function findTarifStandardForClient(int $id_service, int $id_unite, string $typeTarifCode, string $date): ?array {
         $sql = "SELECT t.prix, ? as type, 
                        s.code as code_service, 
                        s.nom as nom_service,
@@ -640,7 +695,7 @@ class TarifControleur {
                 AND t.date_debut <= ? AND (t.date_fin IS NULL OR t.date_fin >= ?)
                 ORDER BY t.date_debut DESC LIMIT 1";
         
-        return $this->fetchOne($sql, [$typeTarifCode, $serviceId, $uniteId, $typeTarifCode, $date, $date]);
+        return $this->fetchOne($sql, [$typeTarifCode, $id_service, $id_unite, $typeTarifCode, $date, $date]);
     }
 }
 ?>

@@ -94,15 +94,18 @@ try {
                     error_log("📥 tarif-api - GET services pour user: $userId");
                 }
                 $resultat = $serviceTarif->getServices();
+                if (is_dev_mode()) {
+                    error_log("📥 tarif-api - GET services - résultat: " . json_encode($resultat));
+                }
                 
             } else if (isset($_GET['unites'])) {
-                $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
+                $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
                 if (is_dev_mode()) {
-                    error_log("🔥 tarif-api - GET unités pour service: " . ($service_id ?? 'tous'));
-                    error_log("🔥 tarif-api - service_id type: " . gettype($service_id));
-                    error_log("🔥 tarif-api - service_id value: " . var_export($service_id, true));
+                    error_log("🔥 tarif-api - GET unités pour service: " . ($id_service ?? 'tous'));
+                    error_log("🔥 tarif-api - id_service type: " . gettype($id_service));
+                    error_log("🔥 tarif-api - id_service value: " . var_export($id_service, true));
                 }
-                $resultat = $serviceTarif->getUnites($service_id);
+                $resultat = $serviceTarif->getUnites($id_service);
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET unités pour service - résultat: " . json_encode($resultat));
                 }
@@ -114,61 +117,61 @@ try {
                 $resultat = $serviceTarif->getTypesTarifs();
                 
             } else if (isset($_GET['tarifs'])) {
-                $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
-                $unite_id = isset($_GET['unite_id']) ? intval($_GET['unite_id']) : null;
+                $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
+                $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 $type_tarif_id = isset($_GET['type_tarif_id']) ? intval($_GET['type_tarif_id']) : null;
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET tarifs avec filtres");
                 }
-                $resultat = $serviceTarif->getTarifs($service_id, $unite_id, $type_tarif_id, $date);
+                $resultat = $serviceTarif->getTarifs($id_service, $id_unite, $type_tarif_id, $date);
                 
             } else if (isset($_GET['allTarifs'])) {
-                $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
-                $unite_id = isset($_GET['unite_id']) ? intval($_GET['unite_id']) : null;
+                $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
+                $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 $type_tarif_id = isset($_GET['type_tarif_id']) ? intval($_GET['type_tarif_id']) : null;
                 
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET tous les tarifs");
                 }
-                $resultat = $serviceTarif->getAllTarifs($service_id, $unite_id, $type_tarif_id);
+                $resultat = $serviceTarif->getAllTarifs($id_service, $id_unite, $type_tarif_id);
                 
             } else if (isset($_GET['allTarifsSpeciaux'])) {
                 $client_id = isset($_GET['client_id']) ? intval($_GET['client_id']) : null;
-                $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
-                $unite_id = isset($_GET['unite_id']) ? intval($_GET['unite_id']) : null;
+                $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
+                $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET tarifs spéciaux pour client: $client_id");
                 }
-                $resultat = $serviceTarif->getAllTarifsSpeciaux($client_id, $service_id, $unite_id);
+                $resultat = $serviceTarif->getAllTarifsSpeciaux($client_id, $id_service, $id_unite);
                 
             } else if (isset($_GET['tarifsSpeciaux'])) {
                 $client_id = isset($_GET['client_id']) ? intval($_GET['client_id']) : null;
-                $service_id = isset($_GET['service_id']) ? intval($_GET['service_id']) : null;
-                $unite_id = isset($_GET['unite_id']) ? intval($_GET['unite_id']) : null;
+                $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
+                $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET tarifs spéciaux actifs pour client: $client_id");
                 }
-                $resultat = $serviceTarif->getTarifsSpeciaux($client_id, $service_id, $unite_id, $date);
+                $resultat = $serviceTarif->getTarifsSpeciaux($client_id, $id_service, $id_unite, $date);
                 
             } else if (isset($_GET['tarifClient'])) {
-                if (!isset($_GET['client_id']) || !isset($_GET['service_id']) || !isset($_GET['unite_id'])) {
-                    throw new Exception('Paramètres manquants: client_id, service_id et unite_id sont requis');
+                if (!isset($_GET['client_id']) || !isset($_GET['id_service']) || !isset($_GET['id_unite'])) {
+                    throw new Exception('Paramètres manquants: client_id, id_service et id_unite sont requis');
                 }
                 
                 $client_id = intval($_GET['client_id']);
-                $service_id = intval($_GET['service_id']);
-                $unite_id = intval($_GET['unite_id']);
+                $id_service = intval($_GET['id_service']);
+                $id_unite = intval($_GET['id_unite']);
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET tarif pour client: $client_id, service: $service_id, unite: $unite_id");
+                    error_log("📥 tarif-api - GET tarif pour client: $client_id, service: $id_service, unite: $id_unite");
                 }
-                $resultat = $serviceTarif->getTarifClient($client_id, $service_id, $unite_id, $date);
+                $resultat = $serviceTarif->getTarifClient($client_id, $id_service, $id_unite, $date);
                 
             } else if (isset($_GET['servicesUnites'])) {
                 if (is_dev_mode()) {
@@ -201,11 +204,11 @@ try {
                 $resultat = $serviceTarif->possedeTarifSpecialDefini($client_id, $date);
                 
             } else if (isset($_GET['uniteDefautService'])) {
-                $service_id = intval($_GET['uniteDefautService']);
+                $id_service = intval($_GET['uniteDefautService']);
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET unité par défaut pour service: $service_id");
+                    error_log("📥 tarif-api - GET unité par défaut pour service: $id_service");
                 }
-                $resultat = $serviceTarif->getUniteDefault($service_id);
+                $resultat = $serviceTarif->getUniteDefault($id_service);
                 if (is_dev_mode()) {
                     error_log("🔧 tarif-api - Resultat GET unité par défaut pour service: " . json_encode($resultat));
                 }
@@ -224,27 +227,27 @@ try {
                 $resultat = $serviceTarif->getUnitesApplicablesPourClient($client_id, $date);
                 
             } else if (isset($_GET['checkUniteUsage'])) {
-                $unite_id = intval($_GET['checkUniteUsage']);
+                $id_unite = intval($_GET['checkUniteUsage']);
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check usage unité: $unite_id");
+                    error_log("📥 tarif-api - Check usage unité: $id_unite");
                 }
-                $resultat = $serviceTarif->checkUniteUsage($unite_id);
+                $resultat = $serviceTarif->checkUniteUsage($id_unite);
                 
             } else if (isset($_GET['checkServiceUsage'])) {
-                $service_id = intval($_GET['checkServiceUsage']);
+                $id_service = intval($_GET['checkServiceUsage']);
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check usage service: $service_id");
+                    error_log("📥 tarif-api - Check usage service: $id_service");
                 }
-                $resultat = $serviceTarif->checkServiceUsage($service_id);
+                $resultat = $serviceTarif->checkServiceUsage($id_service);
                 
-            } else if (isset($_GET['checkServiceUniteUsageInFacture']) && isset($_GET['service_id']) && isset($_GET['unite_id'])) {
-                $service_id = intval($_GET['service_id']);
-                $unite_id = intval($_GET['unite_id']);
+            } else if (isset($_GET['checkServiceUniteUsageInFacture']) && isset($_GET['id_service']) && isset($_GET['id_unite'])) {
+                $id_service = intval($_GET['id_service']);
+                $id_unite = intval($_GET['id_unite']);
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check usage service-unité dans factures: $service_id-$unite_id");
+                    error_log("📥 tarif-api - Check usage service-unité dans factures: $id_service-$id_unite");
                 }
-                $resultat = $serviceTarif->checkServiceUniteUsageInFacture($service_id, $unite_id);
+                $resultat = $serviceTarif->checkServiceUniteUsageInFacture($id_service, $id_unite);
                 
             } else if (isset($_GET['checkTypeTarifUsage'])) {
                 $type_tarif_id = intval($_GET['checkTypeTarifUsage']);
@@ -353,35 +356,35 @@ try {
                             
                         case 'createTarif':
                             error_log('tarif-api - createTarif - données reçues: ' . json_encode($data));
-                            if (!isset($data['service_id']) || !isset($data['unite_id']) || !isset($data['type_tarif_id']) || !isset($data['prix'])) {
+                            if (!isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['type_tarif_id']) || !isset($data['prix'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un tarif');
                             }
                             $resultat = $serviceTarif->createTarif($data);
                             break;
                             
                         case 'createTarifSpecial':
-                            if (!isset($data['client_id']) || !isset($data['service_id']) || !isset($data['unite_id']) || !isset($data['prix'])) {
+                            if (!isset($data['client_id']) || !isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['prix'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un tarif spécial');
                             }
                             $resultat = $serviceTarif->createTarifSpecial($data);
                             break;
                             
                         case 'linkServiceUnite':
-                            if (!isset($data['service_id']) || !isset($data['unite_id'])) {
-                                throw new Exception('service_id et unite_id sont requis');
+                            if (!isset($data['id_service']) || !isset($data['id_unite'])) {
+                                throw new Exception('id_service et id_unite sont requis');
                             }
-                            $service_id = intval($data['service_id']);
-                            $unite_id = intval($data['unite_id']);
-                            $resultat = $serviceTarif->linkServiceUnite($service_id, $unite_id);
+                            $id_service = intval($data['id_service']);
+                            $id_unite = intval($data['id_unite']);
+                            $resultat = $serviceTarif->linkServiceUnite($id_service, $id_unite);
                             break;
                             
                         case 'updateServiceUniteDefault':
-                            if (!isset($data['service_id']) || !isset($data['unite_id'])) {
-                                throw new Exception('service_id et unite_id sont requis');
+                            if (!isset($data['id_service']) || !isset($data['id_unite'])) {
+                                throw new Exception('id_service et id_unite sont requis');
                             }
-                            $service_id = intval($data['service_id']);
-                            $unite_id = intval($data['unite_id']);
-                            $resultat = $serviceTarif->updateServiceUniteDefault($service_id, $unite_id);
+                            $id_service = intval($data['id_service']);
+                            $id_unite = intval($data['id_unite']);
+                            $resultat = $serviceTarif->updateServiceUniteDefault($id_service, $id_unite);
                             break;
                             
                         default:
@@ -438,13 +441,13 @@ try {
                 }
                 
                 if (isset($_GET['type']) && $_GET['type'] === 'serviceUnite') {
-                    if (!isset($_GET['service_id']) || !isset($_GET['unite_id'])) {
-                        throw new Exception('service_id et unite_id sont requis pour la suppression');
+                    if (!isset($_GET['id_service']) || !isset($_GET['id_unite'])) {
+                        throw new Exception('id_service et id_unite sont requis pour la suppression');
                     }
                     
-                    $service_id = intval($_GET['service_id']);
-                    $unite_id = intval($_GET['unite_id']);
-                    $resultat = $serviceTarif->unlinkServiceUnite($service_id, $unite_id);
+                    $id_service = intval($_GET['id_service']);
+                    $id_unite = intval($_GET['id_unite']);
+                    $resultat = $serviceTarif->unlinkServiceUnite($id_service, $id_unite);
                     
                 } else if (isset($_GET['id']) && isset($_GET['type'])) {
                     $id = intval($_GET['id']);

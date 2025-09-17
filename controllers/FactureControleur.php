@@ -69,7 +69,21 @@ class FactureControleur {
             }
             
             // Récupérer les lignes de la facture
-            $sqlLignes = "SELECT * FROM lignesfacture WHERE id_facture = ? ORDER BY no_ordre ASC";
+            $sqlLignes = "SELECT 
+                id_ligne,
+                id_facture,
+                no_ordre,
+                description,
+                description_dates,
+                unite,
+                quantite,
+                prix_unitaire,
+                total_ligne,
+                service_id AS id_service,
+                unite_id AS id_unite
+            FROM lignesfacture 
+            WHERE id_facture = ? 
+            ORDER BY no_ordre ASC";
             $stmtLignes = $conn->prepare($sqlLignes);
             $stmtLignes->execute([$id]);
             $lignes = $stmtLignes->fetchAll(PDO::FETCH_ASSOC);
@@ -98,8 +112,8 @@ class FactureControleur {
             error_log("Facturecontroleur - ajouterFacture - Démarrage de l'ajout de facture");
             error_log("Facturecontroleur - ajouterFacture - Vérification des données de la facture: " . print_r($data, true));
         }
-        if (!isset($data['numeroFacture']) || !isset($data['dateFacture']) || 
-            !isset($data['clientId']) || 
+        if (!isset($data['numero_facture']) || !isset($data['date_facture']) || 
+            !isset($data['id_client']) || 
             !isset($data['lignes']) || !is_array($data['lignes'])) {
             throw new Exception('Données de facture incomplètes ou invalides');
         }
@@ -117,16 +131,16 @@ class FactureControleur {
                 VALUES (?, ?, ?, ?, ?, ?)");
             
             $stmt->execute([
-                $data['numeroFacture'],
-                $data['dateFacture'],
+                $data['numero_facture'],
+                $data['date_facture'],
                 $montantTotal, // Montant recalculé
-                $data['clientId'],
+                $data['id_client'],
                 $dateEdition,
                 $ristourne
             ]);
             
             // Récupérer l'ID de la facture créée
-            $factureId = $conn->lastInsertId();
+            $id_facture = $conn->lastInsertId();
             
             // Insérer les lignes de facture
             $stmtLignes = $conn->prepare("INSERT INTO lignesfacture 
@@ -135,38 +149,38 @@ class FactureControleur {
             
             // Parcourir les lignes
             foreach ($data['lignes'] as $index => $ligne) {
-                if (!isset($ligne['description']) || !isset($ligne['unite']) || 
-                    !isset($ligne['quantite']) || !isset($ligne['prixUnitaire']) || 
-                    !isset($ligne['total']) ||
-                    !isset($ligne['serviceId']) || !isset($ligne['uniteId'])) {
+                if (!isset($ligne['description']) ||  
+                    !isset($ligne['quantite']) || !isset($ligne['prix_unitaire']) || 
+                    !isset($ligne['total_ligne']) ||
+                    !isset($ligne['id_service']) || !isset($ligne['id_unite'])) {
                     throw new Exception('Données de ligne de facture incomplètes');
                 }
                 
                 // Utiliser l'index comme ordre si non fourni
-                $noOrdre = isset($ligne['noOrdre']) ? $ligne['noOrdre'] : $index + 1;
-                
+                $noOrdre = isset($ligne['no_ordre']) ? $ligne['no_ordre'] : $index + 1;
+
                 $stmtLignes->execute([
-                    $factureId,
+                    $id_facture,
                     $ligne['description'],
-                    $ligne['unite'],
+                    $ligne['unite'] ?? null,
                     $ligne['quantite'],
-                    $ligne['prixUnitaire'],
-                    $ligne['total'],
-                    $ligne['serviceId'],
-                    $ligne['uniteId'],
+                    $ligne['prix_unitaire'],
+                    $ligne['total_ligne'],
+                    $ligne['id_service'],
+                    $ligne['id_unite'],
                     $noOrdre,
-                    $ligne['descriptionDates'] ?? null // Nouveau champ
+                    $ligne['description_dates'] ?? null // Nouveau champ
                 ]);
             }
 
             // Mettre à jour le prochain numéro de facture
-            self::mettreAJourProchainNumero($conn, $data['numeroFacture']);
-            
+            self::mettreAJourProchainNumero($conn, $data['numero_facture']);
+
             return [
                 'success' => true,
                 'message' => 'Facture créée avec succès',
-                'factureId' => $factureId,
-                'numeroFacture' => $data['numeroFacture']
+                'factureId' => $id_facture,
+                'numeroFacture' => $data['numero_facture']
             ];
             
         } catch(PDOException $e) {
@@ -185,13 +199,49 @@ class FactureControleur {
      * @throws Exception En cas de données invalides ou d'erreur
      */
     public static function modifierFacture($conn, $id, $data) {
-        // Validation des données
-        if (!isset($data['numeroFacture']) || !isset($data['dateFacture']) || 
-            !isset($data['clientId']) || 
-            !isset($data['lignes']) || !is_array($data['lignes'])) {
-            throw new Exception('Données de facture incomplètes ou invalides');
+        // ✅ DEBUGGING amélioré - formatage sécurisé
+        error_log("=== DEBUGGING FACTURE CONTROLEUR ===");
+        error_log("Raw data type: " . gettype($data));
+        error_log("Raw data content: " . print_r($data, true));
+        
+        // ✅ CORRECTION: Vérification de la structure des données
+        if (!is_array($data)) {
+            throw new Exception('Données de facture invalides - tableau attendu');
         }
-    
+        
+        // ✅ CORRECTION: Gestion sécurisée des différents formats de clientId
+        $clientId = null;
+        if (isset($data['clientId'])) {
+            $clientId = is_array($data['clientId']) ? $data['clientId']['id'] ?? $data['clientId'][0] : $data['clientId'];
+        } elseif (isset($data['client_id'])) {
+            $clientId = is_array($data['client_id']) ? $data['client_id']['id'] ?? $data['client_id'][0] : $data['client_id'];
+        } elseif (isset($data['client'])) {
+            $clientId = is_array($data['client']) ? $data['client']['id'] ?? $data['client']['idClient'] : $data['client'];
+        }
+        
+        error_log("Client ID résolu: " . var_export($clientId, true));
+        error_log("=== FIN DEBUGGING ===");
+        
+        // Validation des données avec messages d'erreur spécifiques
+        $missingFields = [];
+        
+        if (!isset($data['numero_facture']) || empty($data['numero_facture'])) {
+            $missingFields[] = 'numero_facture';
+        }
+        if (!isset($data['date_facture']) || empty($data['date_facture'])) {
+            $missingFields[] = 'date_facture';
+        }
+        if (!$clientId) {
+            $missingFields[] = 'client_id (clientId, client_id, ou client)';
+        }
+        if (!isset($data['lignes']) || !is_array($data['lignes'])) {
+            $missingFields[] = 'lignes (doit être un tableau)';
+        }
+        
+        if (!empty($missingFields)) {
+            throw new Exception('Données de facture incomplètes ou invalides. Champs manquants: ' . implode(', ', $missingFields));
+        }
+
         try {
             // Vérifier si la facture existe
             $checkSql = "SELECT id_facture, numero_facture as oldNumero FROM facture WHERE id_facture = ?";
@@ -201,22 +251,21 @@ class FactureControleur {
             if ($checkStmt->rowCount() === 0) {
                 throw new Exception('Facture non trouvée');
             }
-    
+
             // Calculer le montant total avec la méthode commune
             $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
             
-            // Mettre à jour la facture
-            // Note: on ne modifie plus la date d'édition
+            // Mettre à jour la facture - ✅ CORRECTION: Utilisation de clientId résolu
             $stmt = $conn->prepare("UPDATE facture 
                 SET numero_facture = ?, date_facture = ?, montant_total = ?, id_client = ?, ristourne = ?
                 WHERE id_facture = ?");
             
             $stmt->execute([
-                $data['numeroFacture'],
-                $data['dateFacture'],
+                $data['numero_facture'],
+                $data['date_facture'],
                 $montantTotal,
-                $data['clientId'],
+                $clientId, // ✅ CORRECTION: Utilisation de la variable résolue
                 $ristourne,
                 $id
             ]);
@@ -231,36 +280,45 @@ class FactureControleur {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             
             foreach ($data['lignes'] as $index => $ligne) {
-                if (!isset($ligne['description']) || !isset($ligne['unite']) || 
-                    !isset($ligne['quantite']) || !isset($ligne['prixUnitaire']) || 
-                    !isset($ligne['total']) ||
-                    !isset($ligne['serviceId']) || !isset($ligne['uniteId'])) {
-                    throw new Exception('Données de ligne de facture incomplètes');
+                // ✅ CORRECTION: Validation plus robuste des lignes
+                $requiredFields = ['description', 'unite', 'quantite', 'prix_unitaire', 'total_ligne', 'service_id', 'unite_id'];
+                $missingLineFields = [];
+                
+                foreach ($requiredFields as $field) {
+                    if (!isset($ligne[$field])) {
+                        $missingLineFields[] = $field;
+                    }
                 }
                 
-                // Utiliser l'index comme ordre si non fourni
-                $noOrdre = isset($ligne['noOrdre']) ? $ligne['noOrdre'] : $index + 1;
+                if (!empty($missingLineFields)) {
+                    throw new Exception("Ligne $index: champs manquants - " . implode(', ', $missingLineFields));
+                }
+                
+                // ✅ CORRECTION: Gestion sécurisée des valeurs de ligne
+                $noOrdre = isset($ligne['noOrdre']) ? intval($ligne['noOrdre']) : $index + 1;
+                $descriptionDates = isset($ligne['description_dates']) ? $ligne['description_dates'] : null;
                 
                 $stmtLignes->execute([
                     $id,
-                    $ligne['description'],
-                    $ligne['unite'],
+                    (string)$ligne['description'], // ✅ Cast explicite en string
+                    // (string)$ligne['unite'],       // ✅ Cast explicite en string
+                    null, // unité gérée séparément
                     floatval($ligne['quantite']),
-                    floatval($ligne['prixUnitaire']),
-                    floatval($ligne['total']),
-                    $ligne['serviceId'],
-                    $ligne['uniteId'],
+                    floatval($ligne['prix_unitaire']),
+                    floatval($ligne['total_ligne']),
+                    intval($ligne['service_id']),
+                    intval($ligne['unite_id']),
                     $noOrdre,
-                    $ligne['descriptionDates'] ?? null // Nouveau champ
+                    $descriptionDates
                 ]);
             }
 
             // Mettre à jour le prochain numéro de facture si le numéro a changé
-            $oldNumero = $checkStmt->fetch(PDO::FETCH_ASSOC)['oldNumero'];
-            if ($data['numeroFacture'] !== $oldNumero) {
-                self::mettreAJourProchainNumero($conn, $data['numeroFacture']);
-            }   
-            
+            $oldData = $checkStmt->fetch(PDO::FETCH_ASSOC);
+            if ($data['numero_facture'] !== $oldData['oldNumero']) {
+                self::mettreAJourProchainNumero($conn, $data['numero_facture']);
+            }
+
             return [
                 'success' => true,
                 'message' => 'Facture modifiée avec succès',
@@ -268,8 +326,12 @@ class FactureControleur {
             ];
             
         } catch(PDOException $e) {
-            error_log("Erreur SQL: " . $e->getMessage());
+            error_log("Erreur SQL dans modifierFacture: " . $e->getMessage());
+            error_log("Query info: " . print_r($e->errorInfo, true));
             throw new Exception('Erreur lors de la modification de la facture: ' . $e->getMessage());
+        } catch(Exception $e) {
+            error_log("Erreur générale dans modifierFacture: " . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -667,10 +729,10 @@ class FactureControleur {
         // Calculer le montant total des lignes (montant brut)
         $montantBrut = 0;
         foreach ($lignes as $ligne) {
-            if (!isset($ligne['total'])) {
+            if (!isset($ligne['total_ligne']) && !isset($ligne['total'])) {
                 throw new Exception('Total manquant dans une ligne de facture');
             }
-            $montantBrut += floatval($ligne['total']);
+            $montantBrut += floatval($ligne['total_ligne'] ?? $ligne['total']);
         }
         
         // Calculer le montant total final (montant brut - ristourne)

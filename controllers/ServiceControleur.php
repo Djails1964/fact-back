@@ -14,7 +14,14 @@ class ServiceControleur {
     }
     
     public function getAll(bool $actif = true): array {
-        $sql = "SELECT id as id_service, code, nom, description, actif, isDefault FROM services";
+        $sql = "SELECT 
+                    id as id_service, 
+                    code as code_service, 
+                    nom as nom_service, 
+                    description as description_service, 
+                    actif, 
+                    isDefault 
+                FROM services";
         $params = [];
         
         if ($actif) {
@@ -26,7 +33,13 @@ class ServiceControleur {
     }
     
     public function getById(int $id): ?array {
-        $sql = "SELECT id as id_service, code, nom, description, actif FROM services WHERE id = ?";
+        $sql = "SELECT 
+                    id as id_service, 
+                    code as code_service, 
+                    nom as nom_service, 
+                    description as description_service, 
+                    actif 
+                FROM services WHERE id = ?";
         return $this->fetchOne($sql, [$id]);
     }
     
@@ -37,9 +50,10 @@ class ServiceControleur {
         
         $sql = "INSERT INTO services (code, nom, description, actif, isDefault) VALUES (?, ?, ?, ?, ?)";
         $this->executeQuery($sql, [
-            $data['code'],
-            $data['nom'],
-            $data['description'] ?? null,
+            // ✅ CORRECTION: Support des deux formats de noms de champs
+            $data['code_service'] ?? $data['code'] ?? null,
+            $data['nom_service'] ?? $data['nom'] ?? null,
+            $data['description_service'] ?? $data['description'] ?? null,
             isset($data['actif']) ? ($data['actif'] ? 1 : 0) : 1,
             isset($data['isDefault']) && $data['isDefault'] ? 1 : 0
         ]);
@@ -51,19 +65,20 @@ class ServiceControleur {
         $setFields = [];
         $params = [];
         
-        if (isset($data['code'])) {
+        // ✅ CORRECTION: Support des deux formats de noms de champs
+        if (isset($data['code_service']) || isset($data['code'])) {
             $setFields[] = "code = ?";
-            $params[] = $data['code'];
+            $params[] = $data['code_service'] ?? $data['code'];
         }
         
-        if (isset($data['nom'])) {
+        if (isset($data['nom_service']) || isset($data['nom'])) {
             $setFields[] = "nom = ?";
-            $params[] = $data['nom'];
+            $params[] = $data['nom_service'] ?? $data['nom'];
         }
         
-        if (isset($data['description'])) {
+        if (isset($data['description_service']) || isset($data['description'])) {
             $setFields[] = "description = ?";
-            $params[] = $data['description'];
+            $params[] = $data['description_service'] ?? $data['description'];
         }
         
         if (isset($data['actif'])) {

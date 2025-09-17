@@ -176,6 +176,9 @@ try {
                     error_log("paiement-api - GET paiements facture ID: " . $_GET['id_facture'] . " (user: $userId)");
                 }
                 $resultat = $servicePaiement->getPaiementsParFacture($_GET['id_facture']);
+                if (is_dev_mode()) {
+                    error_log("paiement-api - GET paiements facture ID - resultat: " . json_encode($resultat));
+                }
                 echo json_encode($resultat);
                 break;
             }
@@ -190,7 +193,7 @@ try {
                 'mois' => isset($_GET['mois']) ? intval($_GET['mois']) : null,
                 'methode' => isset($_GET['methode']) ? $_GET['methode'] : null,
                 'statut' => isset($_GET['statut']) ? $_GET['statut'] : null,
-                'id_client' => isset($_GET['id_client']) ? intval($_GET['id_client']) : null,
+                'client_id' => isset($_GET['client_id']) ? intval($_GET['client_id']) : null,
                 'id_facture' => isset($_GET['id_facture']) ? intval($_GET['id_facture']) : null,
                 'page' => $page,
                 'limit' => $limit
@@ -263,17 +266,17 @@ try {
             }
             
             // L'ID peut être fourni dans l'URL ou dans le corps de la requête
-            $id = $_GET['id'] ?? ($data['id'] ?? null);
-            
-            if (!$id) {
+            $id_paiement = $_GET['id_paiement'] ?? ($data['id_paiement'] ?? null);
+
+            if (!$id_paiement) {
                 throw new Exception('ID paiement manquant');
             }
             
             if (is_dev_mode()) {
-                error_log("paiement-api - PUT modification paiement ID: $id (user: $userId)");
+                error_log("paiement-api - PUT modification paiement ID: $id_paiement (user: $userId)");
             }
-            
-            $resultat = $servicePaiement->modifierPaiement($id, $data);
+
+            $resultat = $servicePaiement->modifierPaiement($id_paiement, $data);
             echo json_encode($resultat);
             break;
             
@@ -285,20 +288,20 @@ try {
             }
             
             // ✅ MODIFIÉ: Annuler un paiement au lieu de le supprimer
-            if (!isset($_GET['id'])) {
+            if (!isset($_GET['id_paiement'])) {
                 throw new Exception('ID paiement manquant');
             }
 
             // Récupérer le motif d'annulation depuis le body de la requête
             $rawData = file_get_contents("php://input");
             $data = json_decode($rawData, true);
-            $motifAnnulation = $data['motif_annulation'] ?? 'Annulation demandée par l\'utilisateur';
+            $motif_annulation = $data['motif_annulation'] ?? 'Annulation demandée par l\'utilisateur';
 
             if (is_dev_mode()) {
-                error_log("paiement-api - CANCEL paiement ID: " . $_GET['id'] . " (motif: $motifAnnulation) (user: $userId)");
+                error_log("paiement-api - CANCEL paiement ID: " . $_GET['id_paiement'] . " (motif: $motif_annulation) (user: $userId)");
             }
-            
-            $resultat = $servicePaiement->annulerPaiement($_GET['id'], $motifAnnulation);
+
+            $resultat = $servicePaiement->annulerPaiement($_GET['id_paiement'], $motif_annulation);
             echo json_encode($resultat);
             break;
             
