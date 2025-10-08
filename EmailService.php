@@ -800,17 +800,39 @@ class EmailService {
         
         // Informations sur les pièces jointes
         $attachmentInfo = [];
+        // ✅ DEBUG : Afficher ce qui arrive dans $options
+        error_log("🔍 DEBUG EmailService - options['attachments'] : " . print_r($options['attachments'] ?? 'NON DÉFINI', true));
+
         if (isset($options['attachments']) && is_array($options['attachments'])) {
-            foreach ($options['attachments'] as $attachment) {
+            error_log("📎 DEBUG - Nombre de pièces jointes à traiter : " . count($options['attachments']));
+            
+            foreach ($options['attachments'] as $index => $attachment) {
+                error_log("📄 DEBUG - Pièce jointe [$index] : " . print_r($attachment, true));
+                
                 if (!empty($attachment['path']) && file_exists($attachment['path'])) {
+                    $filename = basename($attachment['path']);
+                    
+                    error_log("✅ DEBUG - Fichier valide : $filename");
+                    error_log("   - Chemin complet : " . $attachment['path']);
+                    error_log("   - Chemin relatif : storage/factures/$filename");
+                    error_log("   - Taille : " . filesize($attachment['path']) . " octets");
+                    
                     $attachmentInfo[] = [
-                        'name' => $attachment['name'] ?? basename($attachment['path']),
-                        'path' => $attachment['path'],
+                        'name' => $attachment['name'] ?? $filename,
+                        'path' => 'storage/factures/' . $filename,  // ✅ Chemin relatif web
                         'size' => filesize($attachment['path']),
                         'type' => $this->getMimeType($attachment['path'])
                     ];
+                } else {
+                    error_log("❌ DEBUG - Fichier invalide ou inexistant");
+                    error_log("   - path fourni : " . ($attachment['path'] ?? 'VIDE'));
+                    error_log("   - file_exists : " . (file_exists($attachment['path'] ?? '') ? 'OUI' : 'NON'));
                 }
             }
+            
+            error_log("📋 DEBUG - attachmentInfo final : " . print_r($attachmentInfo, true));
+        } else {
+            error_log("⚠️ DEBUG - Aucune pièce jointe dans options ou pas un tableau");
         }
         
         // Générer un ID unique pour cette requête

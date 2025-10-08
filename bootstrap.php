@@ -477,6 +477,78 @@ function cleanup_session_data() {
     }
 }
 
+/**
+ * Vérifie la validité de la session pour les endpoints protégés
+ * Retourne une erreur JSON 401 si la session est invalide
+ * 
+ * @param array $publicEndpoints Liste des endpoints publics à exclure
+ * @return bool True si la session est valide ou si endpoint public
+ */
+function check_session_validity($publicEndpoints = ['login', 'check_session', 'debug_session']) {
+    // Récupérer l'URL de la requête
+    $request_uri = $_SERVER['REQUEST_URI'] ?? '';
+    $query_string = $_SERVER['QUERY_STRING'] ?? '';
+    
+    // Vérifier si c'est un endpoint public
+    foreach ($publicEndpoints as $endpoint) {
+        if (strpos($request_uri, $endpoint) !== false || strpos($query_string, $endpoint) !== false) {
+            if (is_dev_mode()) {
+                error_log("✅ check_session_validity - Endpoint public détecté: $endpoint");
+            }
+            return true; // Skip la vérification pour les endpoints publics
+        }
+    }
+    
+    // Vérifier si la session est démarrée
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        if (is_dev_mode()) {
+            error_log("❌ check_session_validity - Session non active");
+        }
+        sendSessionExpiredResponse();
+        return false;
+    }
+    
+    // Vérifier si user_id existe dans la session
+    if (!isset($_SESSION['user_id']) || empty($_SESSION['user_id'])) {
+        if (is_dev_mode()) {
+            error_log("❌ check_session_validity - user_id absent de la session");
+            error_log("   Session ID: " . session_id());
+            error_log("   Contenu session: " . json_encode($_SESSION));
+        }
+        sendSessionExpiredResponse();
+        return false;
+    }
+    
+    // Session valide
+    if (is_dev_mode()) {
+        error_log("✅ check_session_validity - Session valide pour user_id: " . $_SESSION['user_id']);
+    }
+    return true;
+}
+
+/**
+ * Envoie une réponse JSON 401 pour session expirée
+ */
+function sendSessionExpiredResponse() {
+    // Nettoyer tout output précédent
+    if (ob_get_level()) {
+        ob_clean();
+    }
+    
+    http_response_code(401);
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    
+    echo json_encode([
+        'success' => false,
+        'session_expired' => true,
+        'error' => 'Session expirée',
+        'message' => 'Votre session a expiré. Veuillez vous reconnecter.'
+    ]);
+    
+    exit;
+}
+
 // Nettoyer automatiquement au chargement du bootstrap
 cleanup_session_data();
 

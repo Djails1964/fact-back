@@ -7,6 +7,9 @@
 // Inclure la configuration centralisée avec CORS
 $config = require_once realpath(__DIR__ . '/../bootstrap.php');
 
+// ✅ VÉRIFICATION SESSION - Ajouter cette ligne
+check_session_validity();
+
 // Initialiser l'API avec CORS centralisé
 init_api_response();
 

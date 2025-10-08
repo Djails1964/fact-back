@@ -54,15 +54,15 @@ try {
     switch ($method) {
         case 'GET':
             // Récupérer tous les clients ou un client spécifique
-            $clientId = $_GET['id'] ?? null;
+            $id_client = $_GET['id'] ?? null;
             
-            if ($clientId) {
+            if ($id_client) {
                 // Récupérer un client spécifique
                 $response = [
                     'success' => true,
                     'message' => 'Client récupéré (simulation)',
                     'data' => [
-                        'id' => $clientId,
+                        'id' => $id_client,
                         'nom' => 'Client Test',
                         'email' => 'test@example.com'
                     ]
@@ -106,9 +106,9 @@ try {
         case 'PUT':
             // Modifier un client existant
             $input = json_decode(file_get_contents('php://input'), true);
-            $clientId = $_GET['id'] ?? null;
+            $id_client = $_GET['id'] ?? null;
             
-            if (!$clientId) {
+            if (!$id_client) {
                 throw new Exception('ID client requis pour la modification');
             }
             
@@ -116,7 +116,7 @@ try {
                 'success' => true,
                 'message' => 'Client modifié avec succès (simulation)',
                 'data' => [
-                    'id' => $clientId,
+                    'id' => $id_client,
                     'nom' => $input['nom'] ?? 'Client Modifié',
                     'email' => $input['email'] ?? 'modifie@example.com'
                 ]
@@ -125,16 +125,16 @@ try {
             
         case 'DELETE':
             // Supprimer un client
-            $clientId = $_GET['id'] ?? null;
+            $id_client = $_GET['id'] ?? null;
             
-            if (!$clientId) {
+            if (!$id_client) {
                 throw new Exception('ID client requis pour la suppression');
             }
             
             $response = [
                 'success' => true,
                 'message' => 'Client supprimé avec succès (simulation)',
-                'data' => ['id' => $clientId]
+                'data' => ['id' => $id_client]
             ];
             break;
             

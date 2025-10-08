@@ -144,8 +144,8 @@ class FactureControleur {
             
             // Insérer les lignes de facture
             $stmtLignes = $conn->prepare("INSERT INTO lignesfacture 
-                (id_facture, description, unite, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                (id_facture, description, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
             
             // Parcourir les lignes
             foreach ($data['lignes'] as $index => $ligne) {
@@ -162,7 +162,7 @@ class FactureControleur {
                 $stmtLignes->execute([
                     $id_facture,
                     $ligne['description'],
-                    $ligne['unite'] ?? null,
+                    // $ligne['unite'] ?? null,
                     $ligne['quantite'],
                     $ligne['prix_unitaire'],
                     $ligne['total_ligne'],
@@ -179,8 +179,8 @@ class FactureControleur {
             return [
                 'success' => true,
                 'message' => 'Facture créée avec succès',
-                'factureId' => $id_facture,
-                'numeroFacture' => $data['numero_facture']
+                'id_facture' => $id_facture,
+                'numero_facture' => $data['numero_facture']
             ];
             
         } catch(PDOException $e) {
@@ -209,17 +209,17 @@ class FactureControleur {
             throw new Exception('Données de facture invalides - tableau attendu');
         }
         
-        // ✅ CORRECTION: Gestion sécurisée des différents formats de clientId
-        $clientId = null;
-        if (isset($data['clientId'])) {
-            $clientId = is_array($data['clientId']) ? $data['clientId']['id'] ?? $data['clientId'][0] : $data['clientId'];
-        } elseif (isset($data['client_id'])) {
-            $clientId = is_array($data['client_id']) ? $data['client_id']['id'] ?? $data['client_id'][0] : $data['client_id'];
+        // ✅ CORRECTION: Gestion sécurisée des différents formats de id_client
+        $id_client = null;
+        if (isset($data['id_client'])) {
+            $id_client = is_array($data['id_client']) ? $data['id_client']['id'] ?? $data['id_client'][0] : $data['id_client'];
+        } elseif (isset($data['id_client'])) {
+            $id_client = is_array($data['id_client']) ? $data['id_client']['id'] ?? $data['id_client'][0] : $data['id_client'];
         } elseif (isset($data['client'])) {
-            $clientId = is_array($data['client']) ? $data['client']['id'] ?? $data['client']['idClient'] : $data['client'];
+            $id_client = is_array($data['client']) ? $data['client']['id'] ?? $data['client']['idClient'] : $data['client'];
         }
         
-        error_log("Client ID résolu: " . var_export($clientId, true));
+        error_log("Client ID résolu: " . var_export($id_client, true));
         error_log("=== FIN DEBUGGING ===");
         
         // Validation des données avec messages d'erreur spécifiques
@@ -231,8 +231,8 @@ class FactureControleur {
         if (!isset($data['date_facture']) || empty($data['date_facture'])) {
             $missingFields[] = 'date_facture';
         }
-        if (!$clientId) {
-            $missingFields[] = 'client_id (clientId, client_id, ou client)';
+        if (!$id_client) {
+            $missingFields[] = 'id_client (id_client, id_client, ou client)';
         }
         if (!isset($data['lignes']) || !is_array($data['lignes'])) {
             $missingFields[] = 'lignes (doit être un tableau)';
@@ -256,7 +256,7 @@ class FactureControleur {
             $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
             
-            // Mettre à jour la facture - ✅ CORRECTION: Utilisation de clientId résolu
+            // Mettre à jour la facture - ✅ CORRECTION: Utilisation de id_client résolu
             $stmt = $conn->prepare("UPDATE facture 
                 SET numero_facture = ?, date_facture = ?, montant_total = ?, id_client = ?, ristourne = ?
                 WHERE id_facture = ?");
@@ -265,7 +265,7 @@ class FactureControleur {
                 $data['numero_facture'],
                 $data['date_facture'],
                 $montantTotal,
-                $clientId, // ✅ CORRECTION: Utilisation de la variable résolue
+                $id_client, // ✅ CORRECTION: Utilisation de la variable résolue
                 $ristourne,
                 $id
             ]);
@@ -281,7 +281,7 @@ class FactureControleur {
             
             foreach ($data['lignes'] as $index => $ligne) {
                 // ✅ CORRECTION: Validation plus robuste des lignes
-                $requiredFields = ['description', 'unite', 'quantite', 'prix_unitaire', 'total_ligne', 'service_id', 'unite_id'];
+                $requiredFields = ['description', 'unite', 'quantite', 'prix_unitaire', 'total_ligne', 'id_service', 'id_unite'];
                 $missingLineFields = [];
                 
                 foreach ($requiredFields as $field) {
@@ -306,8 +306,8 @@ class FactureControleur {
                     floatval($ligne['quantite']),
                     floatval($ligne['prix_unitaire']),
                     floatval($ligne['total_ligne']),
-                    intval($ligne['service_id']),
-                    intval($ligne['unite_id']),
+                    intval($ligne['id_service']),
+                    intval($ligne['id_unite']),
                     $noOrdre,
                     $descriptionDates
                 ]);

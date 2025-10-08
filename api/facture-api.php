@@ -4,8 +4,28 @@
  * Version sécurisée avec authentification obligatoire
  */
 
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+if (!empty($origin)) {
+    header("Access-Control-Allow-Origin: $origin");
+} else {
+    header("Access-Control-Allow-Origin: http://localhost:3000");
+}
+header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+header('Access-Control-Allow-Credentials: true');
+header('Access-Control-Max-Age: 86400');
+
+// ✅ CRITIQUE: Gérer OPTIONS immédiatement
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 // Utiliser la session centralisée comme les autres APIs
 $config = require_once realpath(__DIR__ . '/../bootstrap.php');
+
+// ✅ VÉRIFICATION SESSION - Ajouter cette ligne
+check_session_validity();
 
 // Initialiser l'API avec CORS centralisé
 init_api_response();
@@ -105,17 +125,16 @@ try {
     
     // Toutes les routes de l'API facture nécessitent une authentification
     if (!$isAuthenticated) {
-        error_log('facture-api - Accès refusé - Authentification requise');
+        error_log('facture-api - Accès refusé - Session expirée');
+        
+        // Headers déjà envoyés au début, juste renvoyer JSON
         http_response_code(401);
+        header('Content-Type: application/json');
         echo json_encode([
             'success' => false,
-            'message' => 'Authentification requise pour accéder aux factures',
-            'code' => 401,
-            'debug' => is_dev_mode() ? [
-                'session_id' => session_id(),
-                'session_keys' => array_keys($_SESSION ?? []),
-                'cookies' => $_COOKIE
-            ] : null
+            'message' => 'Session expirée',
+            'session_expired' => true,
+            'code' => 401
         ]);
         exit;
     }
@@ -375,67 +394,22 @@ try {
     }
     
 } catch (Exception $e) {
-    // Logging d'erreur avec contexte utilisateur
-    $errorDetails = [
-        'message' => $e->getMessage(),
-        'file' => $e->getFile(),
-        'line' => $e->getLine(),
-        'method' => $_SERVER['REQUEST_METHOD'],
-        'url' => $_SERVER['REQUEST_URI'],
-        'user_id' => $userId ?? 'NON_CONNECTÉ',
-        'user_role' => $userRole ?? 'NON_DÉFINI',
-        'timestamp' => date('Y-m-d H:i:s')
-    ];
+    error_log('❌ Erreur API Facture: ' . $e->getMessage());
     
-    error_log('❌ Erreur API Facture: ' . json_encode($errorDetails));
-    
-    // Codes d'erreur HTTP spécifiques
-    $httpCode = 400; // Bad Request par défaut
-    
-    if (strpos($e->getMessage(), 'Authentification requise') !== false) {
-        $httpCode = 401; // Unauthorized
-    } elseif (strpos($e->getMessage(), 'Droits') !== false || 
-              strpos($e->getMessage(), 'administrateur requis') !== false) {
-        $httpCode = 403; // Forbidden
-    } elseif (strpos($e->getMessage(), 'manquant') !== false || 
-              strpos($e->getMessage(), 'requis') !== false) {
-        $httpCode = 422; // Unprocessable Entity
-    } elseif (strpos($e->getMessage(), 'non trouvé') !== false) {
-        $httpCode = 404; // Not Found
-    } elseif (strpos($e->getMessage(), 'non autorisé') !== false) {
-        $httpCode = 403; // Forbidden
+    // Headers CORS déjà envoyés
+    $httpCode = 400;
+    if (strpos($e->getMessage(), 'Authentification') !== false) {
+        $httpCode = 401;
     }
     
     http_response_code($httpCode);
+    header('Content-Type: application/json');
     
-    // Réponse d'erreur enrichie pour React
-    $errorResponse = [
+    echo json_encode([
         'success' => false, 
         'message' => $e->getMessage(),
         'code' => $httpCode,
-        'timestamp' => time()
-    ];
-    
-    // En mode développement, ajouter plus de détails
-    if (is_dev_mode()) {
-        $errorResponse['debug'] = [
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-            'session_debug' => [
-                'session_id' => session_id(),
-                'session_status' => session_status(),
-                'user_id_present' => isset($_SESSION['user_id']),
-                'session_keys' => array_keys($_SESSION ?? []),
-                'method' => $method,
-                'get_params' => $_GET,
-                'authenticated' => $isAuthenticated ?? false,
-                'user_id' => $userId,
-                'user_role' => $userRole
-            ]
-        ];
-    }
-    
-    echo json_encode($errorResponse);
+        'session_expired' => $httpCode === 401
+    ]);
 }
 ?>

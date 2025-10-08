@@ -56,12 +56,12 @@ class UniteControleur {
     }
     
     public function getUniteDefaultForService(int $id_service): ?int {
-        $sql = "SELECT unite_id FROM services_unites 
+        $sql = "SELECT unite_id as id_unite FROM services_unites 
                 WHERE service_id = ? AND isDefault = 1 
                 LIMIT 1";
         
         $result = $this->fetchOne($sql, [$id_service]);
-        return $result ? (int)$result['unite_id'] : null;
+        return $result ? (int)$result['id_unite'] : null;
     }
     
     public function create(array $data): int {
@@ -76,8 +76,8 @@ class UniteControleur {
         $id_unite = $this->getLastInsertId();
         
         // Si un service est spécifié, créer la liaison
-        if (isset($data['service_id']) || isset($data['id_service'])) {
-            $id_service = $data['service_id'] ?? $data['id_service'];
+        if (isset($data['id_service']) || isset($data['id_service'])) {
+            $id_service = $data['id_service'] ?? $data['id_service'];
             $this->linkToService($id_unite, $id_service, $data['isDefault'] ?? false);
         }
         

@@ -221,7 +221,7 @@ class EmailClientPreference {
 
 class EmailClientSender {
     constructor() {
-        this.isFileSystemAccessSupported = 'showSaveFilePicker' in window;
+        this.isFileSystemAccessSupported = true; // Toujours true, on gère les erreurs à l'usage
         this.preference = new EmailClientPreference();
         this.detectedEmailClient = this.detectEmailClientWithPreference();
         console.log('File System Access API supporté:', this.isFileSystemAccessSupported);
@@ -233,7 +233,8 @@ class EmailClientSender {
      * @returns {boolean}
      */
     isSupported() {
-        return this.isFileSystemAccessSupported;
+        // ✅ Toujours retourner true, on testera l'API à l'utilisation
+        return true;
     }
 
     /**
@@ -686,10 +687,6 @@ class EmailClientSender {
      * @returns {Promise<boolean>} - Succès de l'opération
      */
     async createAndDownloadEml(emailData, attachments = null) {
-        if (!this.isSupported()) {
-            throw new Error('File System Access API non supporté par ce navigateur');
-        }
-
         try {
             // Préparer les pièces jointes si nécessaire
             let preparedAttachments = [];
@@ -710,42 +707,74 @@ class EmailClientSender {
             // Nom de fichier adaptatif
             const fileName = this.generateFileName(emailData);
             
-            // Options pour le sélecteur de fichier avec nom suggéré
-            const filePickerOptions = {
-                types: [{
-                    description: 'Fichier Email Brouillon (.eml)',
-                    accept: {
-                        'message/rfc822': ['.eml']
-                    }
-                }],
-                suggestedName: fileName,
-                excludeAcceptAllOption: false
-            };
+            // Téléchargement classique compatible tous navigateurs
+            console.log('📥 Téléchargement du fichier .eml via Blob...');
             
-            // Ouvrir le sélecteur de fichier
-            const fileHandle = await window.showSaveFilePicker(filePickerOptions);
+            const blob = new Blob([emlContent], { type: 'message/rfc822' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
             
-            // Créer un flux d'écriture
-            const writable = await fileHandle.createWritable();
+            // Nettoyer après un délai
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
             
-            // Écrire le contenu
-            await writable.write(emlContent);
-            await writable.close();
+            console.log(`✅ Fichier .eml téléchargé avec succès: ${fileName}`);
             
-            console.log(`✅ Fichier .eml créé avec succès: ${fileName}`);
-            
-            // Afficher des instructions adaptées au client détecté
-            this.showAdaptiveInstructions(fileName);
+            // ⭐ AJOUTEZ ICI LA SOLUTION ALTERNATIVE
+            setTimeout(() => {
+                // Masquer tout le contenu et afficher un message de succès
+                document.body.innerHTML = `
+                    <div style="
+                        display: flex; 
+                        align-items: center; 
+                        justify-content: center; 
+                        height: 100vh; 
+                        flex-direction: column; 
+                        font-family: Arial, sans-serif;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                    ">
+                        <div style="
+                            background: white;
+                            color: #333;
+                            padding: 40px;
+                            border-radius: 15px;
+                            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+                            text-align: center;
+                            max-width: 500px;
+                        ">
+                            <h1 style="color: #4CAF50; margin: 0 0 20px 0;">✅ Téléchargement réussi !</h1>
+                            <p style="font-size: 18px; margin: 15px 0;">Le fichier <strong>${fileName}</strong> a été téléchargé.</p>
+                            <p style="color: #666; margin: 20px 0;">Ouvrez-le dans votre client de messagerie pour envoyer l'email.</p>
+                            <button onclick="window.close()" style="
+                                margin-top: 30px; 
+                                padding: 15px 30px; 
+                                font-size: 16px;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-weight: bold;
+                            " onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+                                Fermer cette fenêtre
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }, 5000); // Attendre 5 secondes avant d'afficher le message
             
             return true;
             
         } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('Utilisateur a annulé la sauvegarde');
-                return false;
-            }
-            
-            console.error('Erreur lors de la création du fichier .eml:', error);
+            console.error('❌ Erreur lors de la création du fichier .eml:', error);
             throw error;
         }
     }
@@ -1025,74 +1054,101 @@ class EmailClientSender {
             
             // Déterminer les pièces jointes à utiliser
             let attachmentsToUse = [];
+            let attachmentMethod = 'none';
             
             if (manualAttachments && manualAttachments.length > 0) {
                 // Utiliser les pièces jointes sélectionnées manuellement
                 attachmentsToUse = Array.from(manualAttachments);
+                attachmentMethod = 'manual';
                 console.log('Utilisation des pièces jointes manuelles:', attachmentsToUse.length);
             } else if (window.attachmentInfo && window.attachmentInfo.length > 0) {
                 // Télécharger automatiquement les pièces jointes depuis le serveur
-                console.log('Téléchargement automatique des pièces jointes depuis le serveur...');
-                attachmentsToUse = await this.downloadAttachmentsFromServer(window.attachmentInfo);
-                console.log('Pièces jointes téléchargées:', attachmentsToUse.length);
+                try {
+                    console.log('Téléchargement automatique des pièces jointes depuis le serveur...');
+                    attachmentsToUse = await this.downloadAttachmentsFromServer(window.attachmentInfo);
+                    attachmentMethod = 'auto';
+                    console.log('Pièces jointes téléchargées:', attachmentsToUse.length);
+                } catch (downloadError) {
+                    console.warn('❌ Téléchargement automatique impossible:', downloadError);
+                    attachmentsToUse = [];
+                    attachmentMethod = 'failed';
+                }
             }
 
-            // Si pas de pièces jointes et File System Access non supporté, utiliser mailto:
-            if (attachmentsToUse.length === 0 && !this.isSupported()) {
-                const mailtoUrl = this.generateMailtoLink(emailData);
-                window.location.href = mailtoUrl;
-                
-                return {
-                    success: true,
-                    method: 'mailto',
-                    message: 'Email ouvert dans le client de messagerie par défaut'
-                };
-            }
-
-            // Si File System Access supporté, créer un fichier .eml
-            if (this.isSupported()) {
-                const success = await this.createAndDownloadEml(emailData, attachmentsToUse);
-                
-                if (success) {
+            // Tenter de créer un fichier .eml avec pièces jointes
+            if (attachmentsToUse.length > 0) {
+                try {
+                    console.log('🔄 Tentative de création du fichier .eml avec', attachmentsToUse.length, 'pièce(s) jointe(s)...');
+                    const success = await this.createAndDownloadEml(emailData, attachmentsToUse);
+                    
+                    if (success) {
+                        return {
+                            success: true,
+                            method: 'eml_file_universal',
+                            message: `Fichier .eml créé avec succès ! Optimisé pour ${this.detectedEmailClient.primary}.`,
+                            instructions: 'Consultez les instructions dans la popup pour ouvrir le fichier en mode brouillon.',
+                            attachmentCount: attachmentsToUse.length,
+                            detectedClient: this.detectedEmailClient.primary
+                        };
+                    } else {
+                        // L'utilisateur a annulé
+                        return {
+                            success: false,
+                            method: 'eml_file_cancelled',
+                            message: 'Création du fichier .eml annulée par l\'utilisateur'
+                        };
+                    }
+                } catch (emlError) {
+                    console.warn('❌ Impossible de créer le fichier .eml:', emlError.message);
+                    
+                    // Fallback sur mailto: sans pièces jointes
+                    console.log('📧 Fallback: ouverture via mailto: sans pièces jointes');
+                    const mailtoUrl = this.generateMailtoLink(emailData);
+                    window.location.href = mailtoUrl;
+                    
                     return {
                         success: true,
-                        method: 'eml_file_universal',
-                        message: `Fichier .eml créé avec succès ! Optimisé pour ${this.detectedEmailClient.primary}.`,
-                        instructions: 'Consultez les instructions dans la popup pour ouvrir le fichier en mode brouillon.',
-                        attachmentCount: attachmentsToUse.length,
-                        detectedClient: this.detectedEmailClient.primary
-                    };
-                } else {
-                    return {
-                        success: false,
-                        method: 'eml_file_universal',
-                        message: 'Création du fichier .eml annulée par l\'utilisateur'
+                        method: 'mailto_without_attachments',
+                        message: 'Email ouvert sans pièces jointes. Veuillez les ajouter manuellement dans votre client de messagerie.',
+                        warning: 'Les pièces jointes n\'ont pas pu être attachées automatiquement',
+                        attachmentMethod: attachmentMethod
                     };
                 }
             }
 
-            // Fallback: si on a des pièces jointes mais pas de File System Access
-            if (attachmentsToUse.length > 0) {
-                throw new Error('Les pièces jointes ne sont pas supportées sans File System Access API. Utilisez Chrome, Edge ou Firefox récent.');
-            }
-
-            // Dernière option: mailto: sans pièces jointes
+            // Pas de pièces jointes - utiliser mailto: simple
+            console.log('📧 Pas de pièces jointes - ouverture via mailto:');
             const mailtoUrl = this.generateMailtoLink(emailData);
             window.location.href = mailtoUrl;
             
             return {
                 success: true,
-                method: 'mailto_fallback',
-                message: 'Email ouvert via mailto: (pièces jointes non supportées)'
+                method: 'mailto',
+                message: 'Email ouvert dans le client de messagerie par défaut',
+                detectedClient: this.detectedEmailClient.primary
             };
 
         } catch (error) {
-            console.error('Erreur lors de l\'envoi via client email:', error);
-            return {
-                success: false,
-                method: 'error',
-                message: error.message
-            };
+            console.error('❌ Erreur lors de l\'envoi via client email:', error);
+            
+            // Dernier fallback : mailto: basique
+            try {
+                const mailtoUrl = this.generateMailtoLink(emailData);
+                window.location.href = mailtoUrl;
+                
+                return {
+                    success: true,
+                    method: 'mailto_emergency_fallback',
+                    message: 'Email ouvert via mailto: (mode de secours)',
+                    warning: error.message
+                };
+            } catch (fallbackError) {
+                return {
+                    success: false,
+                    method: 'error',
+                    message: `Impossible d'ouvrir le client email: ${error.message}`
+                };
+            }
         }
     }
 }
@@ -1105,6 +1161,10 @@ window.EmailClientSender = EmailClientSender;
  * Compatible avec l'appel depuis PHP
  */
 window.sendEmailViaClient = async function(emailData, attachmentInputId = null) {
+    console.log('🚀 window.sendEmailViaClient appelé');
+    console.log('📧 emailData:', emailData);
+    console.log('📎 attachmentInputId:', attachmentInputId);
+    
     const sender = new EmailClientSender();
     
     // Récupérer les pièces jointes manuelles si un ID d'input est fourni
@@ -1113,14 +1173,16 @@ window.sendEmailViaClient = async function(emailData, attachmentInputId = null) 
         const attachmentInput = document.getElementById(attachmentInputId);
         if (attachmentInput && attachmentInput.files && attachmentInput.files.length > 0) {
             manualAttachments = attachmentInput.files;
-            console.log('Pièces jointes manuelles sélectionnées:', manualAttachments.length);
+            console.log('📎 Pièces jointes manuelles sélectionnées:', manualAttachments.length);
         }
     }
     
-    // Envoyer l'email (avec téléchargement automatique si pas de sélection manuelle)
+    // Envoyer l'email avec la nouvelle logique
     const result = await sender.sendViaEmailClient(emailData, manualAttachments);
     
     // Afficher le résultat à l'utilisateur
+    console.log('📊 Résultat final:', result);
+    
     if (result.success) {
         console.log('✅ ' + result.message);
         if (result.attachmentCount > 0) {
@@ -1129,9 +1191,11 @@ window.sendEmailViaClient = async function(emailData, attachmentInputId = null) 
         if (result.detectedClient) {
             console.log(`🎯 Optimisé pour: ${result.detectedClient}`);
         }
+        if (result.warning) {
+            console.warn('⚠️ Attention:', result.warning);
+        }
     } else {
         console.error('❌ ' + result.message);
-        alert('Erreur: ' + result.message);
     }
     
     return result;

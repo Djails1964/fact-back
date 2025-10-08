@@ -488,7 +488,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_used'])) {
                         }
                         
                         // ✅ NOUVEAU: Programmer la fermeture automatique
-                        closePopupAfterSuccess(3000); // Fermer après 3 secondes
+                        // closePopupAfterSuccess(3000); // Fermer après 3 secondes
                         
                         // Marquer comme utilisé côté serveur
                         await fetch(window.location.href, {

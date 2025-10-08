@@ -7,6 +7,9 @@
 // Utiliser la session centralisée comme les autres APIs
 $config = require_once realpath(__DIR__ . '/../bootstrap.php');
 
+// ✅ VÉRIFICATION SESSION - Ajouter cette ligne
+check_session_validity();
+
 // Initialiser l'API avec CORS centralisé
 init_api_response();
 
@@ -193,7 +196,7 @@ try {
                 'mois' => isset($_GET['mois']) ? intval($_GET['mois']) : null,
                 'methode' => isset($_GET['methode']) ? $_GET['methode'] : null,
                 'statut' => isset($_GET['statut']) ? $_GET['statut'] : null,
-                'client_id' => isset($_GET['client_id']) ? intval($_GET['client_id']) : null,
+                'id_client' => isset($_GET['id_client']) ? intval($_GET['id_client']) : null,
                 'id_facture' => isset($_GET['id_facture']) ? intval($_GET['id_facture']) : null,
                 'page' => $page,
                 'limit' => $limit

@@ -178,9 +178,9 @@ class PaiementControleur {
                 $params[] = $options['methode'];
             }
             
-            if (!empty($options['client_id'])) {
+            if (!empty($options['id_client'])) {
                 $sql .= " AND c.id = ?";
-                $params[] = $options['client_id'];
+                $params[] = $options['id_client'];
             }
             
             if (!empty($options['facture_id'])) {

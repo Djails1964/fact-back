@@ -18,15 +18,15 @@ class ClientControleur {
      * Vérifie si un client a au moins une facture associée
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client à vérifier
+     * @param int $id_client ID du client à vérifier
      * @return bool TRUE si le client a au moins une facture, FALSE sinon
      * @throws Exception En cas d'erreur
      */
-    public static function aUneFacture($conn, $clientId) {
+    public static function aUneFacture($conn, $id_client) {
         try {
             $sql = "SELECT 1 FROM facture WHERE id_client = ? LIMIT 1";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$clientId]);
+            $stmt->execute([$id_client]);
             
             return $stmt->rowCount() > 0;
         } catch (PDOException $e) {
@@ -39,17 +39,17 @@ class ClientControleur {
      * Récupère les factures associées à un client
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $clientId ID du client
+     * @param int $id_client ID du client
      * @return array Les factures associées au client
      * @throws Exception En cas d'erreur
      */
-    public static function getFacturesClient($conn, $clientId) {
+    public static function getFacturesClient($conn, $id_client) {
         try {
             $sql = "SELECT f.id_facture, f.numero_facture, f.date_facture, f.montant_total 
                     FROM facture f 
                     WHERE f.id_client = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$clientId]);
+            $stmt->execute([$id_client]);
             
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         } catch (PDOException $e) {

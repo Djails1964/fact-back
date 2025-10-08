@@ -5,6 +5,10 @@
 
 // Utiliser la session centralisée
 $config = require_once realpath(__DIR__ . '/../bootstrap.php');
+
+// ✅ VÉRIFICATION SESSION - Ajouter cette ligne
+check_session_validity();
+
 init_api_response();
 
 if (!is_dev_mode()) {
@@ -138,40 +142,40 @@ try {
                 $resultat = $serviceTarif->getAllTarifs($id_service, $id_unite, $type_tarif_id);
                 
             } else if (isset($_GET['allTarifsSpeciaux'])) {
-                $client_id = isset($_GET['client_id']) ? intval($_GET['client_id']) : null;
+                $id_client = isset($_GET['id_client']) ? intval($_GET['id_client']) : null;
                 $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
                 $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET tarifs spéciaux pour client: $client_id");
+                    error_log("📥 tarif-api - GET tarifs spéciaux pour client: $id_client");
                 }
-                $resultat = $serviceTarif->getAllTarifsSpeciaux($client_id, $id_service, $id_unite);
+                $resultat = $serviceTarif->getAllTarifsSpeciaux($id_client, $id_service, $id_unite);
                 
             } else if (isset($_GET['tarifsSpeciaux'])) {
-                $client_id = isset($_GET['client_id']) ? intval($_GET['client_id']) : null;
+                $id_client = isset($_GET['id_client']) ? intval($_GET['id_client']) : null;
                 $id_service = isset($_GET['id_service']) ? intval($_GET['id_service']) : null;
                 $id_unite = isset($_GET['id_unite']) ? intval($_GET['id_unite']) : null;
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET tarifs spéciaux actifs pour client: $client_id");
+                    error_log("📥 tarif-api - GET tarifs spéciaux actifs pour client: $id_client");
                 }
-                $resultat = $serviceTarif->getTarifsSpeciaux($client_id, $id_service, $id_unite, $date);
+                $resultat = $serviceTarif->getTarifsSpeciaux($id_client, $id_service, $id_unite, $date);
                 
             } else if (isset($_GET['tarifClient'])) {
-                if (!isset($_GET['client_id']) || !isset($_GET['id_service']) || !isset($_GET['id_unite'])) {
-                    throw new Exception('Paramètres manquants: client_id, id_service et id_unite sont requis');
+                if (!isset($_GET['id_client']) || !isset($_GET['id_service']) || !isset($_GET['id_unite'])) {
+                    throw new Exception('Paramètres manquants: id_client, id_service et id_unite sont requis');
                 }
                 
-                $client_id = intval($_GET['client_id']);
+                $id_client = intval($_GET['id_client']);
                 $id_service = intval($_GET['id_service']);
                 $id_unite = intval($_GET['id_unite']);
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET tarif pour client: $client_id, service: $id_service, unite: $id_unite");
+                    error_log("📥 tarif-api - GET tarif pour client: $id_client, service: $id_service, unite: $id_unite");
                 }
-                $resultat = $serviceTarif->getTarifClient($client_id, $id_service, $id_unite, $date);
+                $resultat = $serviceTarif->getTarifClient($id_client, $id_service, $id_unite, $date);
                 
             } else if (isset($_GET['servicesUnites'])) {
                 if (is_dev_mode()) {
@@ -180,28 +184,28 @@ try {
                 $resultat = $serviceTarif->getServicesUnites();
                 
             } else if (isset($_GET['estTherapeute'])) {
-                if (!isset($_GET['client_id'])) {
-                    throw new Exception('Paramètre client_id manquant');
+                if (!isset($_GET['id_client'])) {
+                    throw new Exception('Paramètre id_client manquant');
                 }
                 
-                $client_id = intval($_GET['client_id']);
+                $id_client = intval($_GET['id_client']);
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check thérapeute pour client: $client_id");
+                    error_log("📥 tarif-api - Check thérapeute pour client: $id_client");
                 }
-                $resultat = $serviceTarif->estTherapeute($client_id);
+                $resultat = $serviceTarif->estTherapeute($id_client);
                 
             } else if (isset($_GET['possedeTarifSpecial'])) {
-                if (!isset($_GET['client_id'])) {
-                    throw new Exception('Paramètre client_id manquant');
+                if (!isset($_GET['id_client'])) {
+                    throw new Exception('Paramètre id_client manquant');
                 }
                 
-                $client_id = intval($_GET['client_id']);
+                $id_client = intval($_GET['id_client']);
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check tarif spécial pour client: $client_id");
+                    error_log("📥 tarif-api - Check tarif spécial pour client: $id_client");
                 }
-                $resultat = $serviceTarif->possedeTarifSpecialDefini($client_id, $date);
+                $resultat = $serviceTarif->possedeTarifSpecialDefini($id_client, $date);
                 
             } else if (isset($_GET['uniteDefautService'])) {
                 $id_service = intval($_GET['uniteDefautService']);
@@ -214,17 +218,17 @@ try {
                 }
                 
             } else if (isset($_GET['unitesClient'])) {
-                if (!isset($_GET['client_id'])) {
-                    throw new Exception('Paramètre client_id manquant');
+                if (!isset($_GET['id_client'])) {
+                    throw new Exception('Paramètre id_client manquant');
                 }
                 
-                $client_id = intval($_GET['client_id']);
+                $id_client = intval($_GET['id_client']);
                 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
                 
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - GET unités applicables pour client: $client_id");
+                    error_log("📥 tarif-api - GET unités applicables pour client: $id_client");
                 }
-                $resultat = $serviceTarif->getUnitesApplicablesPourClient($client_id, $date);
+                $resultat = $serviceTarif->getUnitesApplicablesPourClient($id_client, $date);
                 
             } else if (isset($_GET['checkUniteUsage'])) {
                 $id_unite = intval($_GET['checkUniteUsage']);
@@ -363,7 +367,7 @@ try {
                             break;
                             
                         case 'createTarifSpecial':
-                            if (!isset($data['client_id']) || !isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['prix'])) {
+                            if (!isset($data['id_client']) || !isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['prix'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un tarif spécial');
                             }
                             $resultat = $serviceTarif->createTarifSpecial($data);

@@ -134,7 +134,7 @@ class ServiceControleur {
     }
     
     public function checkUsage(int $id): array {
-        return $this->checkUsageInTables($id, 'service_id', [
+        return $this->checkUsageInTables($id, 'id_service', [
             'services_unites', 'tarifs', 'tarifs_speciaux'
         ]);
     }

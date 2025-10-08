@@ -552,10 +552,10 @@ class ServiceTarif {
      * ===============================
      */
     
-    public function getTarifsSpeciaux($client_id = null, $id_service = null, $id_unite = null, $date = null) {
+    public function getTarifsSpeciaux($id_client = null, $id_service = null, $id_unite = null, $date = null) {
         if ($this->useNewTarifController) {
             try {
-                $tarifs = $this->tarifControleur->getTarifsSpeciaux($client_id, $id_service, $id_unite, $date);
+                $tarifs = $this->tarifControleur->getTarifsSpeciaux($id_client, $id_service, $id_unite, $date);
                 return [
                     'success' => true,
                     'tarifsSpeciaux' => $tarifs
@@ -570,10 +570,10 @@ class ServiceTarif {
         }
     }
 
-    public function getAllTarifsSpeciaux($client_id = null, $id_service = null, $id_unite = null) {
+    public function getAllTarifsSpeciaux($id_client = null, $id_service = null, $id_unite = null) {
         if ($this->useNewTarifController) {
             try {
-                $tarifs = $this->tarifControleur->getAllTarifsSpeciaux($client_id, $id_service, $id_unite);
+                $tarifs = $this->tarifControleur->getAllTarifsSpeciaux($id_client, $id_service, $id_unite);
                 return [
                     'success' => true,
                     'tarifsSpeciaux' => $tarifs
@@ -593,7 +593,7 @@ class ServiceTarif {
             return $this->executeWithTransaction(function() use ($data) {
                 try {
                     // Valider les données
-                    if (!isset($data['client_id']) || !isset($data['id_service']) || 
+                    if (!isset($data['id_client']) || !isset($data['id_service']) || 
                         !isset($data['id_unite']) || !isset($data['prix'])) {
                         return [
                             'success' => false,
@@ -692,16 +692,16 @@ class ServiceTarif {
      * ===============================
      */
     
-    public function getTarifClient($client_id, $id_service, $id_unite, $date = null) {
+    public function getTarifClient($id_client, $id_service, $id_unite, $date = null) {
         if ($this->useNewTarifController) {
             try {
                 $date = $date ?: date('Y-m-d');
                 
-                error_log("ServiceTarif::getTarifClient - Recherche tarif pour client: $client_id, service: $id_service, unite: $id_unite, date: $date");
+                error_log("ServiceTarif::getTarifClient - Recherche tarif pour client: $id_client, service: $id_service, unite: $id_unite, date: $date");
                 
                 // 1. PRIORITÉ 1: Chercher un tarif spécial pour ce client
                 error_log("ServiceTarif::getTarifClient - Étape 1: Recherche tarif spécial");
-                $tarifsSpeciaux = $this->tarifControleur->getTarifsSpeciaux($client_id, $id_service, $id_unite, $date);
+                $tarifsSpeciaux = $this->tarifControleur->getTarifsSpeciaux($id_client, $id_service, $id_unite, $date);
                 
                 if (!empty($tarifsSpeciaux)) {
                     $tarifSpecial = $tarifsSpeciaux[0]; // Prendre le premier tarif trouvé
@@ -721,7 +721,7 @@ class ServiceTarif {
                 error_log("ServiceTarif::getTarifClient - Aucun tarif spécial trouvé");
                 
                 // 2. PRIORITÉ 2: Vérifier si le client est thérapeute
-                $estTherapeute = $this->tarifControleur->isClientTherapeute($client_id);
+                $estTherapeute = $this->tarifControleur->isClientTherapeute($id_client);
                 error_log("ServiceTarif::getTarifClient - Client est thérapeute: " . ($estTherapeute ? 'OUI' : 'NON'));
                 
                 if ($estTherapeute) {
@@ -824,7 +824,7 @@ class ServiceTarif {
                 error_log("ServiceTarif::getTarifClient - AUCUN TARIF TROUVÉ");
                 return [
                     'success' => false,
-                    'message' => "Aucun tarif trouvé pour le service $id_service, l'unité $id_unite et le client $client_id"
+                    'message' => "Aucun tarif trouvé pour le service $id_service, l'unité $id_unite et le client $id_client"
                 ];
                 
             } catch (Exception $e) {
@@ -837,10 +837,10 @@ class ServiceTarif {
         }
     }
 
-    public function estTherapeute($client_id) {
+    public function estTherapeute($id_client) {
         if ($this->useNewTarifController) {
             try {
-                $result = $this->tarifControleur->isClientTherapeute($client_id);
+                $result = $this->tarifControleur->isClientTherapeute($id_client);
                 return [
                     'success' => true,
                     'estTherapeute' => $result
@@ -855,10 +855,10 @@ class ServiceTarif {
         }
     }
 
-    public function possedeTarifSpecialDefini($client_id, $date = null) {
+    public function possedeTarifSpecialDefini($id_client, $date = null) {
         if ($this->useNewTarifController) {
             try {
-                $result = $this->tarifControleur->clientPossedeTarifSpecial($client_id, $date);
+                $result = $this->tarifControleur->clientPossedeTarifSpecial($id_client, $date);
                 return [
                     'success' => true,
                     'possedeTarifSpecial' => $result
@@ -873,11 +873,11 @@ class ServiceTarif {
         }
     }
 
-    public function getUnitesApplicablesPourClient($client_id, $date = null) {
+    public function getUnitesApplicablesPourClient($id_client, $date = null) {
         if ($this->useNewTarifController) {
             try {
                 $date = $date ?: date('Y-m-d');
-                $unites = $this->tarifControleur->getUnitesApplicablesPourClient($client_id, $date);
+                $unites = $this->tarifControleur->getUnitesApplicablesPourClient($id_client, $date);
                 return [
                     'success' => true,
                     'unites' => $unites
@@ -1002,18 +1002,18 @@ class ServiceTarif {
 
     /**
      * Applique des tarifs spéciaux en masse pour un client
-     * @param int $client_id ID du client
+     * @param int $id_client ID du client
      * @param array $tarifsSpeciaux Tarifs spéciaux à appliquer
      * @return array Résultat de l'opération
      */
-    public function appliquerTarifsSpeciauxMasse($client_id, $tarifsSpeciaux) {
-        return $this->executeWithTransaction(function() use ($client_id, $tarifsSpeciaux) {
+    public function appliquerTarifsSpeciauxMasse($id_client, $tarifsSpeciaux) {
+        return $this->executeWithTransaction(function() use ($id_client, $tarifsSpeciaux) {
             try {
                 $tarifsAppliques = 0;
                 $erreurs = [];
                 
                 foreach ($tarifsSpeciaux as $index => $tarifData) {
-                    $tarifData['client_id'] = $client_id;
+                    $tarifData['id_client'] = $id_client;
                     $result = $this->createTarifSpecial($tarifData, false);
                     if ($result['success']) {
                         $tarifsAppliques++;

@@ -64,15 +64,15 @@ class ServiceFacture {
                 'user_name' => $user['name'],
                 'action_type' => ActivityLogsConstants::ACTION_FACTURE_CREATE,
                 'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
-                'entity_id' => $resultatFacture['factureId'],
-                'description' => "Création de la facture #{$resultatFacture['factureId']} pour le client {$data['client_nom']}",
+                'entity_id' => $resultatFacture['id_facture'],
+                'description' => "Création de la facture #{$resultatFacture['id_facture']} pour le client {$data['client_nom']}",
                 'details' => [
-                    'facture_id' => $resultatFacture['factureId'],
-                    'numero_facture' => $resultatFacture['numeroFacture'],
-                    'client_id' => $data['clientId'] ?? null,
+                    'id_facture' => $resultatFacture['id_facture'],
+                    'numero_facture' => $resultatFacture['numero_facture'],
+                    'id_client' => $data['id_client'] ?? null,
                     'client_nom' => $data['client_nom'] ?? null,
-                    'montant_total' => $data['montantTotal'] ?? null,
-                    'date_facture' => $data['dateFacture'] ?? null,
+                    'montant_total' => $data['montant_total'] ?? null,
+                    'date_facture' => $data['date_facture'] ?? null,
                     'nb_lignes' => isset($data['lignes']) ? count($data['lignes']) : 0
                 ],
                 'severity' => ActivityLogsConstants::SEVERITY_INFO
@@ -102,8 +102,8 @@ class ServiceFacture {
                 'description' => "Échec de création d'une facture",
                 'details' => [
                     'error_message' => $e->getMessage(),
-                    'client_id' => $data['clientId'] ?? null,
-                    'montant_total' => $data['montantTotal'] ?? null
+                    'id_client' => $data['id_client'] ?? null,
+                    'montant_total' => $data['montant_total'] ?? null
                 ],
                 'severity' => ActivityLogsConstants::SEVERITY_ERROR
             ]);
@@ -1165,7 +1165,7 @@ class ServiceFacture {
             'dateFacture' => 'date_facture',
             'dateEcheance' => 'date_echeance',
             'commentaire' => 'commentaire',
-            'clientId' => 'id_client'
+            'id_client' => 'id_client'
         ];
         
         foreach ($fieldsToCheck as $newField => $oldField) {
