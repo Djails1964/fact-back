@@ -1,67 +1,67 @@
 <?php
 
 class ParametreControleur {
-    // Fonction pour récupérer les paramètres par groupe
-    public static function getParametresParGroupe($conn, $groupeParametre = null) {
+    // Fonction pour récupérer les paramètres par groupe_parametre
+    public static function getParametresParGroupe($conn, $groupe_parametre = null) {
         try {
             // Requête pour récupérer tous les paramètres (inchangée)
-            $sql = $groupeParametre === null 
+            $sql = $groupe_parametre === null 
                 ? "SELECT 
-                    Nom_parametre, 
-                    Valeur_parametre, 
-                    Annee_parametre, 
-                    Groupe_parametre, 
-                    sGroupe_parametre, 
-                    Categorie 
+                    nom_parametre,
+                    valeur_parametre, 
+                    annee_parametre, 
+                    groupe_parametre, 
+                    sous_groupe_parametre, 
+                    categorie 
                 FROM parametres 
-                ORDER BY Groupe_parametre, sGroupe_parametre, Categorie, Nom_parametre"
+                ORDER BY groupe_parametre, sous_groupe_parametre, categorie, nom_parametre"
                 : "SELECT 
-                    Nom_parametre, 
-                    Valeur_parametre, 
-                    Annee_parametre, 
-                    Groupe_parametre, 
-                    sGroupe_parametre, 
-                    Categorie 
+                    nom_parametre, 
+                    valeur_parametre, 
+                    annee_parametre, 
+                    groupe_parametre, 
+                    sous_groupe_parametre, 
+                    categorie 
                 FROM parametres 
-                WHERE Groupe_parametre = ? 
-                ORDER BY sGroupe_parametre, Categorie, Nom_parametre";
+                WHERE groupe_parametre = ? 
+                ORDER BY sous_groupe_parametre, categorie, nom_parametre";
             
             $stmt = $conn->prepare($sql);
-            $groupeParametre === null ? $stmt->execute() : $stmt->execute([$groupeParametre]);
+            $groupe_parametre === null ? $stmt->execute() : $stmt->execute([$groupe_parametre]);
             
             $parametres = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            // Structure hiérarchique : Groupe > Sous-groupe > Catégorie > Paramètres
+            // Structure hiérarchique : groupe_parametre > Sous-groupe_parametre > Catégorie > Paramètres
             $parametresParGroupe = [];
             
             foreach ($parametres as $parametre) {
-                $groupe = $parametre['Groupe_parametre'];
-                $sousGroupe = $parametre['sGroupe_parametre'] ?: 'Général';
-                $categorie = $parametre['Categorie'] ?: 'Default';
+                $groupe_parametre = $parametre['groupe_parametre'];
+                $sous_groupe_parametre = $parametre['sous_groupe_parametre'] ?: 'Général';
+                $categorie = $parametre['categorie'] ?: 'Default';
                 
-                // Initialiser le groupe s'il n'existe pas
-                if (!isset($parametresParGroupe[$groupe])) {
-                    $parametresParGroupe[$groupe] = [];
+                // Initialiser le groupe_parametre s'il n'existe pas
+                if (!isset($parametresParGroupe[$groupe_parametre])) {
+                    $parametresParGroupe[$groupe_parametre] = [];
                 }
                 
-                // Ajouter le sous-groupe s'il n'existe pas
-                if (!isset($parametresParGroupe[$groupe][$sousGroupe])) {
-                    $parametresParGroupe[$groupe][$sousGroupe] = [];
+                // Ajouter le sous-groupe_parametre s'il n'existe pas
+                if (!isset($parametresParGroupe[$groupe_parametre][$sous_groupe_parametre])) {
+                    $parametresParGroupe[$groupe_parametre][$sous_groupe_parametre] = [];
                 }
                 
                 // Ajouter la catégorie si elle n'existe pas
-                if (!isset($parametresParGroupe[$groupe][$sousGroupe][$categorie])) {
-                    $parametresParGroupe[$groupe][$sousGroupe][$categorie] = [];
+                if (!isset($parametresParGroupe[$groupe_parametre][$sous_groupe_parametre][$categorie])) {
+                    $parametresParGroupe[$groupe_parametre][$sous_groupe_parametre][$categorie] = [];
                 }
                 
                 // Ajouter le paramètre à la structure
-                $parametresParGroupe[$groupe][$sousGroupe][$categorie][] = $parametre;
+                $parametresParGroupe[$groupe_parametre][$sous_groupe_parametre][$categorie][] = $parametre;
             }
             
             // Normaliser la structure pour garantir une cohérence
             // Assurer que toutes les catégories sont des tableaux
-            foreach ($parametresParGroupe as $groupe => &$sousGroupes) {
-                foreach ($sousGroupes as $sousGroupe => &$categories) {
+            foreach ($parametresParGroupe as $groupe_parametre => &$sousGroupes) {
+                foreach ($sousGroupes as $sous_groupe_parametre => &$categories) {
                     // Vérifier si nous avons des catégories qui ne sont pas des tableaux de paramètres
                     foreach ($categories as $categorie => &$params) {
                         if (!is_array($params)) {
@@ -77,27 +77,27 @@ class ParametreControleur {
                 'parametres' => $parametresParGroupe
             ];
         } catch (PDOException $e) {
-            error_log("Erreur lors de la récupération des paramètres par groupe: " . $e->getMessage());
-            throw new Exception('Erreur lors de la récupération des paramètres par groupe');
+            error_log("Erreur lors de la récupération des paramètres par groupe_parametre: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération des paramètres par groupe_parametre');
         }
     }
 
-    // Fonction pour récupérer les paramètres par groupe ET sous-groupe
-    public static function getParametresParSousGroupe($conn, $groupeParametre, $sGroupeParametre) {
+    // Fonction pour récupérer les paramètres par groupe_parametre ET sous-groupe_parametre
+    public static function getParametresParSousGroupe($conn, $groupe_parametre, $sous_groupe_parametre) {
         try {
-            $sql = "SELECT Nom_parametre, Valeur_parametre, Annee_parametre, Groupe_parametre, sGroupe_parametre, Categorie 
+            $sql = "SELECT nom_parametre, valeur_parametre, annee_parametre, groupe_parametre, sous_groupe_parametre, categorie 
                     FROM parametres 
-                    WHERE Groupe_parametre = ? AND sGroupe_parametre = ? 
-                    ORDER BY Nom_parametre";
+                    WHERE groupe_parametre = ? AND sous_groupe_parametre = ? 
+                    ORDER BY nom_parametre";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$groupeParametre, $sGroupeParametre]);
+            $stmt->execute([$groupe_parametre, $sous_groupe_parametre]);
             
             $parametres = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             // Organiser les paramètres par catégorie
             $parametresParCategorie = [];
             foreach ($parametres as $parametre) {
-                $categorie = $parametre['Categorie'] ?? 'Default';
+                $categorie = $parametre['categorie'] ?? 'Default';
                 if (!isset($parametresParCategorie[$categorie])) {
                     $parametresParCategorie[$categorie] = [];
                 }
@@ -109,29 +109,29 @@ class ParametreControleur {
                 'parametres' => $parametresParCategorie
             ];
         } catch (PDOException $e) {
-            error_log("Erreur lors de la récupération des paramètres par sous-groupe: " . $e->getMessage());
-            throw new Exception('Erreur lors de la récupération des paramètres par sous-groupe');
+            error_log("Erreur lors de la récupération des paramètres par sous-groupe_parametre: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération des paramètres par sous-groupe_parametre');
         }
     }
 
     // Fonction pour récupérer le prochain numéro de facture pour une année donnée
-    public static function getProchainNumeroFacture($conn, $annee) {
+    public static function getProchainNumeroFacture($conn, $annee_parametre) {
         try {
             
-            $sql = "SELECT Valeur_parametre FROM parametres 
-                    WHERE Nom_parametre = 'Prochain Numéro Facture' 
-                    AND Annee_parametre = ? 
-                    AND Groupe_parametre = 'Facture' 
-                    AND sGroupe_parametre = 'Numéro' 
+            $sql = "SELECT valeur_parametre FROM parametres 
+                    WHERE nom_parametre = 'Prochain Numéro Facture' 
+                    AND annee_parametre = ? 
+                    AND groupe_parametre = 'Facture' 
+                    AND sous_groupe_parametre = 'Numéro' 
                     LIMIT 1";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$annee]);
+            $stmt->execute([$annee_parametre]);
             
             $resultat = $stmt->fetch(PDO::FETCH_ASSOC);
             
             return [
                 'success' => true,
-                'parametres' => $resultat ? $resultat['Valeur_parametre'] : null,
+                'parametres' => $resultat ? $resultat['valeur_parametre'] : null,
                 'message' => $resultat ? 'Prochain numéro de facture récupéré avec succès' : 'Aucun numéro de facture trouvé pour cette année'
             ];
         } catch (PDOException $e) {
@@ -141,46 +141,46 @@ class ParametreControleur {
     }    
 
     /**
-     * Récupère un paramètre spécifique avec filtrage par groupe, sous-groupe, catégorie
+     * Récupère un paramètre spécifique avec filtrage par groupe_parametre, sous-groupe_parametre, catégorie
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param string $nomParametre Nom du paramètre à récupérer
-     * @param string $groupeParametre Groupe du paramètre (obligatoire)
-     * @param string|null $sGroupeParametre Sous-groupe du paramètre (optionnel)
+     * @param string $nom_parametre Nom du paramètre à récupérer
+     * @param string $groupe_parametre groupe_parametre du paramètre (obligatoire)
+     * @param string|null $sous_groupe_parametre Sous-groupe_parametre du paramètre (optionnel)
      * @param string|null $categorie Catégorie du paramètre (optionnel)
-     * @param int|null $annee Année spécifique du paramètre (optionnel)
+     * @param int|null $annee_parametre Année spécifique du paramètre (optionnel)
      * @return array Paramètre trouvé ou null
      * @throws Exception En cas d'erreur
      */
-    public static function getParametre($conn, $nomParametre, $groupeParametre, $sGroupeParametre = null, $categorie = null, $annee = null) {
+    public static function getParametre($conn, $nom_parametre, $groupe_parametre, $sous_groupe_parametre = null, $categorie = null, $annee_parametre = null) {
         try {
-            error_log("Récupération du paramètre: nomParametre = $nomParametre, groupeParametre = $groupeParametre, sGroupeParametre = $sGroupeParametre, categorie = $categorie, annee = $annee"); // Log pour le débogage
+            error_log("Récupération du paramètre: nom_parametre = $nom_parametre, groupe_parametre = $groupe_parametre, sous_groupe_parametre = $sous_groupe_parametre, categorie = $categorie, annee_parametre = $annee_parametre"); // Log pour le débogage
             // Vérification des paramètres obligatoires
-            if (!isset($nomParametre) || !isset($groupeParametre)) {
-                error_log("Erreur : Les paramètres nomParametre et groupeParametre sont obligatoires");
-                throw new Exception('Erreur : Les paramètres nomParametre et groupeParametre sont obligatoires');
+            if (!isset($nom_parametre) || !isset($groupe_parametre)) {
+                error_log("Erreur : Les paramètres nom_parametre et groupe_parametre sont obligatoires");
+                throw new Exception('Erreur : Les paramètres nom_parametre et groupe_parametre sont obligatoires');
             }
 
             // Construction de la requête SQL de base
-            $sql = "SELECT Nom_parametre, Valeur_parametre, Annee_parametre, Groupe_parametre, sGroupe_parametre, Categorie 
+            $sql = "SELECT nom_parametre, valeur_parametre, annee_parametre, groupe_parametre, sous_groupe_parametre, categorie 
                     FROM parametres 
-                    WHERE Nom_parametre = ? AND Groupe_parametre = ?";
-            $params = [$nomParametre, $groupeParametre];
+                    WHERE nom_parametre = ? AND groupe_parametre = ?";
+            $params = [$nom_parametre, $groupe_parametre];
             
             // Ajouter les filtres optionnels
-            if ($sGroupeParametre !== null) {
-                $sql .= " AND sGroupe_parametre = ?";
-                $params[] = $sGroupeParametre;
+            if ($sous_groupe_parametre !== null) {
+                $sql .= " AND sous_groupe_parametre = ?";
+                $params[] = $sous_groupe_parametre;
             }
             
             if ($categorie !== null) {
-                $sql .= " AND Categorie = ?";
+                $sql .= " AND categorie = ?";
                 $params[] = $categorie;
             }
             
-            if ($annee !== null) {
-                $sql .= " AND Annee_parametre = ?";
-                $params[] = $annee;
+            if ($annee_parametre !== null) {
+                $sql .= " AND annee_parametre = ?";
+                $params[] = $annee_parametre;
             }
             
             $sql .= " LIMIT 1";
@@ -214,55 +214,55 @@ class ParametreControleur {
      * 
      * La structure retournée est toujours la même et est décrite dans la fonction
      * Si tous les champs sont null ou absent, la fonction retourne tous les paramètres.
-     * Si le groupe est présent uniquement, la fonction retourne tous les paramètres de ce groupe.
-     * Si un sous-groupe est présent, alors le groupe doit être présent obligatoirement.
-     * Si une categorie est présente alors le sous-groupe et le groupe doivent obligatoirement être présents.
+     * Si le groupe_parametre est présent uniquement, la fonction retourne tous les paramètres de ce groupe_parametre.
+     * Si un sous-groupe_parametre est présent, alors le groupe_parametre doit être présent obligatoirement.
+     * Si une categorie est présente alors le sous-groupe_parametre et le groupe_parametre doivent obligatoirement être présents.
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param string|null $groupe Le groupe de paramètres (obligatoire si $sousGroupe est spécifié)
-     * @param string|null $sousGroupe Le sous-groupe de paramètres (obligatoire si $categorie est spécifiée)
+     * @param string|null $groupe_parametre Le groupe_parametre de paramètres (obligatoire si $sous_groupe_parametre est spécifié)
+     * @param string|null $sous_groupe_parametre Le sous-groupe_parametre de paramètres (obligatoire si $categorie est spécifiée)
      * @param string|null $categorie La catégorie de paramètres
      * @return array Structure de paramètres selon le format défini
      * @throws Exception Si les contraintes de hiérarchie ne sont pas respectées
      */
-    public static function getParametres($conn, $groupe = null, $sousGroupe = null, $categorie = null)
+    public static function getParametres($conn, $groupe_parametre = null, $sous_groupe_parametre = null, $categorie = null)
     {
         // Validation des contraintes de hiérarchie
-        if ($sousGroupe !== null && $groupe === null) {
-            throw new Exception("Le groupe doit être spécifié lorsqu'un sous-groupe est fourni");
+        if ($sous_groupe_parametre !== null && $groupe_parametre === null) {
+            throw new Exception("Le groupe_parametre doit être spécifié lorsqu'un sous-groupe_parametre est fourni");
         }
         
-        if ($categorie !== null && ($groupe === null || $sousGroupe === null)) {
-            throw new Exception("Le groupe et le sous-groupe doivent être spécifiés lorsqu'une catégorie est fournie");
+        if ($categorie !== null && ($groupe_parametre === null || $sous_groupe_parametre === null)) {
+            throw new Exception("Le groupe_parametre et le sous-groupe_parametre doivent être spécifiés lorsqu'une catégorie est fournie");
         }
         
         try {
             // Construire la requête SQL de base
-            $sql = "SELECT id, Nom_parametre, Valeur_parametre, 
-                    Groupe_parametre, sGroupe_parametre, Categorie 
+            $sql = "SELECT id, nom_parametre, valeur_parametre, 
+                    groupe_parametre, sous_groupe_parametre, categorie 
                     FROM parametres 
                     WHERE 1=1";
             
             $params = [];
             
             // Ajouter les filtres selon les paramètres fournis
-            if ($groupe !== null) {
-                $sql .= " AND Groupe_parametre = ?";
-                $params[] = $groupe;
+            if ($groupe_parametre !== null) {
+                $sql .= " AND groupe_parametre = ?";
+                $params[] = $groupe_parametre;
                 
-                if ($sousGroupe !== null) {
-                    $sql .= " AND sGroupe_parametre = ?";
-                    $params[] = $sousGroupe;
+                if ($sous_groupe_parametre !== null) {
+                    $sql .= " AND sous_groupe_parametre = ?";
+                    $params[] = $sous_groupe_parametre;
                     
                     if ($categorie !== null) {
-                        $sql .= " AND Categorie = ?";
+                        $sql .= " AND categorie = ?";
                         $params[] = $categorie;
                     }
                 }
             }
             
             // Ajouter les tris pour garantir un ordre cohérent
-            $sql .= " ORDER BY Groupe_parametre ASC, sGroupe_parametre ASC, Categorie ASC, Nom_parametre ASC";
+            $sql .= " ORDER BY groupe_parametre ASC, sous_groupe_parametre ASC, categorie ASC, nom_parametre ASC";
             
             // Exécuter la requête
             $stmt = $conn->prepare($sql);
@@ -274,9 +274,9 @@ class ParametreControleur {
             $result = [];
             
             foreach ($parametres as $parametre) {
-                $grp = $parametre['Groupe_parametre'];
-                $sgrp = $parametre['sGroupe_parametre'] ?: 'Général';
-                $cat = $parametre['Categorie'] ?: 'Default';
+                $grp = $parametre['groupe_parametre'];
+                $sgrp = $parametre['sous_groupe_parametre'] ?: 'Général';
+                $cat = $parametre['categorie'] ?: 'Default';
                 
                 // Initialiser la structure si nécessaire
                 if (!isset($result[$grp])) {
@@ -297,8 +297,8 @@ class ParametreControleur {
 
             // Normaliser la structure pour garantir une cohérence
             // Assurer que toutes les catégories sont des tableaux
-            foreach ($result as $groupe => &$sousGroupes) {
-                foreach ($sousGroupes as $sousGroupe => &$categories) {
+            foreach ($result as $groupe_parametre => &$sousGroupes) {
+                foreach ($sousGroupes as $sous_groupe_parametre => &$categories) {
                     // Vérifier si nous avons des catégories qui ne sont pas des tableaux de paramètres
                     foreach ($categories as $categorie => &$params) {
                         if (!is_array($params)) {
@@ -330,49 +330,51 @@ class ParametreControleur {
      */
     public static function enregistrerParametres($conn, $data) {
         try {
+
+            error_log("ParametreControleur - enregistrerParametres - data: ". json_encode($data));
             
             // Validation des données obligatoires
-            if (!isset($data['valeurParametre']) || !isset($data['nomParametre']) || !isset($data['groupeParametre'])) {
-                throw new Exception('Données de paramètres incomplètes (valeurParametre, nomParametre et groupeParametre sont obligatoires)');
+            if (!isset($data['valeur_parametre']) || !isset($data['nom_parametre']) || !isset($data['groupe_parametre'])) {
+                throw new Exception('Données de paramètres incomplètes (valeur_parametre, nom_parametre et groupe_parametre sont obligatoires)');
             }
             
             // Validation spécifique pour certains paramètres
-            if ($data['nomParametre'] === 'Prochain Numéro Facture' && !isset($data['annee'])) {
+            if ($data['nom_parametre'] === 'Prochain Numéro Facture' && !isset($data['annee_parametre'])) {
                 throw new Exception('L\'année est requise pour le paramètre Prochain Numéro Facture');
             }
             
             // Convertir et valider les entrées
-            $valeurParametre = strval($data['valeurParametre']);
-            $annee = isset($data['annee']) ? intval($data['annee']) : null;
-            $nomParametre = $data['nomParametre'];
-            $groupeParametre = $data['groupeParametre'];
-            $sGroupeParametre = isset($data['sGroupeParametre']) ? $data['sGroupeParametre'] : null;
+            $valeur_parametre = strval($data['valeur_parametre']);
+            $annee_parametre = isset($data['annee_parametre']) ? intval($data['annee_parametre']) : null;
+            $nom_parametre = $data['nom_parametre'];
+            $groupe_parametre = $data['groupe_parametre'];
+            $sous_groupe_parametre = isset($data['sous_groupe_parametre']) ? $data['sous_groupe_parametre'] : null;
             $categorie = isset($data['categorie']) ? $data['categorie'] : null;
             
             // Construction de la requête de vérification d'existence
-            $checkSql = "SELECT id FROM parametres WHERE Nom_parametre = ? AND Groupe_parametre = ?";
-            $checkParams = [$nomParametre, $groupeParametre];
+            $checkSql = "SELECT id FROM parametres WHERE nom_parametre = ? AND groupe_parametre = ?";
+            $checkParams = [$nom_parametre, $groupe_parametre];
             
             // Ajouter les filtres optionnels pour la vérification
-            if ($sGroupeParametre !== null) {
-                $checkSql .= " AND sGroupe_parametre = ?";
-                $checkParams[] = $sGroupeParametre;
+            if ($sous_groupe_parametre !== null) {
+                $checkSql .= " AND sous_groupe_parametre = ?";
+                $checkParams[] = $sous_groupe_parametre;
             } else {
-                $checkSql .= " AND (sGroupe_parametre IS NULL OR sGroupe_parametre = '')";
+                $checkSql .= " AND (sous_groupe_parametre IS NULL OR sous_groupe_parametre = '')";
             }
             
             if ($categorie !== null) {
-                $checkSql .= " AND Categorie = ?";
+                $checkSql .= " AND categorie = ?";
                 $checkParams[] = $categorie;
             } else {
-                $checkSql .= " AND (Categorie IS NULL OR Categorie = '')";
+                $checkSql .= " AND (categorie IS NULL OR categorie = '')";
             }
             
-            if ($annee !== null) {
-                $checkSql .= " AND Annee_parametre = ?";
-                $checkParams[] = $annee;
+            if ($annee_parametre !== null) {
+                $checkSql .= " AND annee_parametre = ?";
+                $checkParams[] = $annee_parametre;
             } else {
-                $checkSql .= " AND (Annee_parametre IS NULL OR Annee_parametre = 0)";
+                $checkSql .= " AND (annee_parametre IS NULL OR annee_parametre = 0)";
             }
             
             $checkStmt = $conn->prepare($checkSql);
@@ -382,29 +384,29 @@ class ParametreControleur {
             
             if ($checkStmt->rowCount() > 0) {
                 // Mise à jour d'un paramètre existant
-                $sql = "UPDATE parametres SET Valeur_parametre = ? WHERE Nom_parametre = ? AND Groupe_parametre = ?";
-                $params = [$valeurParametre, $nomParametre, $groupeParametre];
+                $sql = "UPDATE parametres SET valeur_parametre = ? WHERE nom_parametre = ? AND groupe_parametre = ?";
+                $params = [$valeur_parametre, $nom_parametre, $groupe_parametre];
                 
                 // Ajouter les filtres optionnels pour l'update
-                if ($sGroupeParametre !== null) {
-                    $sql .= " AND sGroupe_parametre = ?";
-                    $params[] = $sGroupeParametre;
+                if ($sous_groupe_parametre !== null) {
+                    $sql .= " AND sous_groupe_parametre = ?";
+                    $params[] = $sous_groupe_parametre;
                 } else {
-                    $sql .= " AND (sGroupe_parametre IS NULL OR sGroupe_parametre = '')";
+                    $sql .= " AND (sous_groupe_parametre IS NULL OR sous_groupe_parametre = '')";
                 }
                 
                 if ($categorie !== null) {
-                    $sql .= " AND Categorie = ?";
+                    $sql .= " AND categorie = ?";
                     $params[] = $categorie;
                 } else {
-                    $sql .= " AND (Categorie IS NULL OR Categorie = '')";
+                    $sql .= " AND (categorie IS NULL OR categorie = '')";
                 }
                 
-                if ($annee !== null) {
-                    $sql .= " AND Annee_parametre = ?";
-                    $params[] = $annee;
+                if ($annee_parametre !== null) {
+                    $sql .= " AND annee_parametre = ?";
+                    $params[] = $annee_parametre;
                 } else {
-                    $sql .= " AND (Annee_parametre IS NULL OR Annee_parametre = 0)";
+                    $sql .= " AND (annee_parametre IS NULL OR annee_parametre = 0)";
                 }
                 
                 error_log("Requête de mise à jour: " . $sql . " - Paramètres: " . json_encode($params)); // Log pour le débogage
@@ -413,10 +415,10 @@ class ParametreControleur {
                 
             } else {
                 // Insertion d'un nouveau paramètre
-                $sql = "INSERT INTO parametres (Nom_parametre, Valeur_parametre, Annee_parametre, Groupe_parametre, sGroupe_parametre, Categorie) 
+                $sql = "INSERT INTO parametres (nom_parametre, valeur_parametre, annee_parametre, groupe_parametre, sous_groupe_parametre, categorie) 
                         VALUES (?, ?, ?, ?, ?, ?)";
                 $stmt = $conn->prepare($sql);
-                $stmt->execute([$nomParametre, $valeurParametre, $annee, $groupeParametre, $sGroupeParametre, $categorie]);
+                $stmt->execute([$nom_parametre, $valeur_parametre, $annee_parametre, $groupe_parametre, $sous_groupe_parametre, $categorie]);
             }
             
             

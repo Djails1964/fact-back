@@ -766,7 +766,7 @@ class FactureControleur {
             'valeurParametre' => $prochainNumero,
             'annee' => $annee,
             'groupeParametre' => 'Facture',
-            'sGroupeParametre' => 'Numéro'
+            'sous_groupe_parametre' => 'Numéro'
         ];
         
         // Appeler la fonction d'enregistrement des paramètres

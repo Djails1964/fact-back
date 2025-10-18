@@ -11,13 +11,13 @@ class ServiceParametre {
     }
     
     /**
-     * Récupère tous les paramètres organisés par groupe
-     * @param string|null $groupeParametre Groupe spécifique à récupérer (optionnel)
-     * @return array Paramètres organisés par groupe
+     * Récupère tous les paramètres organisés par groupe_parametre
+     * @param string|null $groupe_parametre groupe_parametre spécifique à récupérer (optionnel)
+     * @return array Paramètres organisés par groupe_parametre
      */
-    public function getParametresParGroupe($groupeParametre = null) {
+    public function getParametresParGroupe($groupe_parametre = null) {
         try {
-            $parametres = ParametreControleur::getParametresParGroupe($this->conn, $groupeParametre);
+            $parametres = ParametreControleur::getParametresParGroupe($this->conn, $groupe_parametre);
             
             // Normalisation supplémentaire si nécessaire
             $normalizedParams = $this->normalizeParametersStructure($parametres['parametres']);
@@ -30,7 +30,7 @@ class ServiceParametre {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Erreur lors de la récupération des paramètres par groupe: ' . $e->getMessage()
+                'message' => 'Erreur lors de la récupération des paramètres par groupe_parametre: ' . $e->getMessage()
             ];
         }
     }
@@ -41,8 +41,8 @@ class ServiceParametre {
      * @return array Structure normalisée
      */
     private function normalizeParametersStructure($params) {
-        foreach ($params as $groupe => &$sousGroupes) {
-            foreach ($sousGroupes as $sousGroupe => &$categories) {
+        foreach ($params as $groupe_parametre => &$sousGroupes) {
+            foreach ($sousGroupes as $sous_groupe_parametre => &$categories) {
                 foreach ($categories as $categorie => &$parametres) {
                     // S'assurer que les paramètres sont toujours un tableau
                     if (!is_array($parametres)) {
@@ -55,14 +55,14 @@ class ServiceParametre {
     }    
 
     /**
-     * Récupère les paramètres par groupe et sous-groupe
-     * @param string $groupeParametre Groupe de paramètres
-     * @param string $sGroupeParametre Sous-groupe de paramètres
+     * Récupère les paramètres par groupe_parametre et sous-groupe_parametre
+     * @param string $groupe_parametre groupe_parametre de paramètres
+     * @param string $sous_groupe_parametre Sous-groupe_parametre de paramètres
      * @return array Paramètres organisés par catégorie
      */
-    public function getParametresParSousGroupe($groupeParametre, $sGroupeParametre) {
+    public function getParametresParSousGroupe($groupe_parametre, $sous_groupe_parametre) {
         try {
-            $parametres = ParametreControleur::getParametresParSousGroupe($this->conn, $groupeParametre, $sGroupeParametre);
+            $parametres = ParametreControleur::getParametresParSousGroupe($this->conn, $groupe_parametre, $sous_groupe_parametre);
             
             return [
                 'success' => true,
@@ -72,7 +72,7 @@ class ServiceParametre {
         } catch (Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Erreur lors de la récupération des paramètres par sous-groupe: ' . $e->getMessage()
+                'message' => 'Erreur lors de la récupération des paramètres par sous-groupe_parametre: ' . $e->getMessage()
             ];
         }
     }
@@ -88,31 +88,31 @@ class ServiceParametre {
     /**
      * Récupère un paramètre spécifique
      * 
-     * @param string $nomParametre Nom du paramètre
-     * @param string $groupeParametre Groupe du paramètre (obligatoire)
-     * @param string|null $sGroupeParametre Sous-groupe du paramètre (optionnel)
+     * @param string $nom_parametre Nom du paramètre
+     * @param string $groupe_parametre groupe_parametre du paramètre (obligatoire)
+     * @param string|null $sous_groupe_parametre Sous-groupe_parametre du paramètre (optionnel)
      * @param string|null $categorie Catégorie du paramètre (optionnel)
-     * @param int|null $annee Année du paramètre (optionnel)
+     * @param int|null $annee_parametre Année du paramètre (optionnel)
      * @return array Paramètre trouvé
      */
-    public function getParametre($nomParametre, $groupeParametre, $sGroupeParametre = null, $categorie = null, $annee = null) {
+    public function getParametre($nom_parametre, $groupe_parametre, $sous_groupe_parametre = null, $categorie = null, $annee_parametre = null) {
         try {
             // Valider les paramètres obligatoires
-            if (empty($nomParametre) || empty($groupeParametre)) {
+            if (empty($nom_parametre) || empty($groupe_parametre)) {
                 return [
                     'success' => false,
-                    'message' => 'Le nom et le groupe du paramètre sont obligatoires'
+                    'message' => 'Le nom et le groupe_parametre du paramètre sont obligatoires'
                 ];
             }
 
             
             $resultat = ParametreControleur::getParametre(
                 $this->conn, 
-                $nomParametre, 
-                $groupeParametre, 
-                $sGroupeParametre, 
+                $nom_parametre, 
+                $groupe_parametre, 
+                $sous_groupe_parametre, 
                 $categorie, 
-                $annee
+                $annee_parametre
             );
             
            return $resultat;
@@ -127,11 +127,11 @@ class ServiceParametre {
     
     /**
      * Cette méthode est maintenue pour rétrocompatibilité
-     * @deprecated Utiliser getParametre avec le groupe en paramètre à la place
+     * @deprecated Utiliser getParametre avec le groupe_parametre en paramètre à la place
      */
-    public function getParametreSimple($annee, $nomParametre) {
+    public function getParametreSimple($annee_parametre, $nom_parametre) {
         try {
-            $parametres = ParametreControleur::getParametres($this->conn, $nomParametre, $annee);
+            $parametres = ParametreControleur::getParametres($this->conn, $nom_parametre, $annee_parametre);
             
             return [
                 'success' => true,
@@ -148,7 +148,7 @@ class ServiceParametre {
 
     /**
      * Récupère TOUS les tarifs (pas seulement ceux de location de salle)
-     * @return array Tous les tarifs disponibles dans le groupe "Tarifs"
+     * @return array Tous les tarifs disponibles dans le groupe_parametre "Tarifs"
      */
     public function getAllTarifs() {
         return $this->getParametresParGroupe('Tarifs');
@@ -157,16 +157,16 @@ class ServiceParametre {
 
     /**
      * Enregistre ou met à jour un paramètre
-     * @param array $data Données du paramètre (nomParametre, valeurParametre, groupeParametre obligatoires)
+     * @param array $data Données du paramètre (nom_parametre, valeur_parametre, groupe_parametre obligatoires)
      * @return array Résultat de l'opération
      */
     public function enregistrerParametre($data) {
         try {
             // Vérification des données requises
-            if (!isset($data['valeurParametre']) || !isset($data['nomParametre']) || !isset($data['groupeParametre'])) {
+            if (!isset($data['valeur_parametre']) || !isset($data['nom_parametre']) || !isset($data['groupe_parametre'])) {
                 return [
                     'success' => false,
-                    'message' => 'Données de paramètres incomplètes (valeurParametre, nomParametre et groupeParametre sont obligatoires)'
+                    'message' => 'Données de paramètres incomplètes (valeur_parametre, nom_parametre et groupe_parametre sont obligatoires)'
                 ];
             }
             
@@ -184,12 +184,12 @@ class ServiceParametre {
     
     /**
      * Récupère le prochain numéro de facture pour une année donnée
-     * @param int $annee Année pour laquelle récupérer le prochain numéro
+     * @param int $annee_parametre Année pour laquelle récupérer le prochain numéro
      * @return array Résultat de l'opération
      */
-    public function getProchainNumeroFacture($annee) {
+    public function getProchainNumeroFacture($annee_parametre) {
         try {
-            return ParametreControleur::getProchainNumeroFacture($this->conn, $annee) ?? null;
+            return ParametreControleur::getProchainNumeroFacture($this->conn, $annee_parametre) ?? null;
         } catch (Exception $e) {
             return [
                 'success' => false,
@@ -201,30 +201,30 @@ class ServiceParametre {
     /**
      * Récupère les paramètres selon les critères spécifiés
      * 
-     * @param string|null $groupe Le groupe de paramètres (obligatoire si $sousGroupe est spécifié)
-     * @param string|null $sousGroupe Le sous-groupe de paramètres (obligatoire si $categorie est spécifiée)
+     * @param string|null $groupe_parametre Le groupe_parametre de paramètres (obligatoire si $sous_groupe_parametre est spécifié)
+     * @param string|null $sous_groupe_parametre Le sous-groupe_parametre de paramètres (obligatoire si $categorie est spécifiée)
      * @param string|null $categorie La catégorie de paramètres
      * @return array Paramètres correspondant aux critères spécifiés
      */
-    public function getParametres($groupe = null, $sousGroupe = null, $categorie = null) {
+    public function getParametres($groupe_parametre = null, $sous_groupe_parametre = null, $categorie = null) {
         try {
             // Validation des contraintes de hiérarchie
-            if ($sousGroupe !== null && $groupe === null) {
+            if ($sous_groupe_parametre !== null && $groupe_parametre === null) {
                 return [
                     'success' => false,
-                    'message' => 'Le groupe doit être spécifié lorsqu\'un sous-groupe est fourni'
+                    'message' => 'Le groupe_parametre doit être spécifié lorsqu\'un sous-groupe_parametre est fourni'
                 ];
             }
             
-            if ($categorie !== null && ($groupe === null || $sousGroupe === null)) {
+            if ($categorie !== null && ($groupe_parametre === null || $sous_groupe_parametre === null)) {
                 return [
                     'success' => false,
-                    'message' => 'Le groupe et le sous-groupe doivent être spécifiés lorsqu\'une catégorie est fournie'
+                    'message' => 'Le groupe_parametre et le sous-groupe_parametre doivent être spécifiés lorsqu\'une catégorie est fournie'
                 ];
             }
             
             // Appel au contrôleur
-            return ParametreControleur::getParametres($this->conn, $groupe, $sousGroupe, $categorie);
+            return ParametreControleur::getParametres($this->conn, $groupe_parametre, $sous_groupe_parametre, $categorie);
                                    
         } catch (Exception $e) {
             return [

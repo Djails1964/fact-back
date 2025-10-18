@@ -1,0 +1,125 @@
+-- Script de modification de la table parametres
+-- Ajout des colonnes libelle_parametre et description_parametre
+-- Renommage de toutes les colonnes en minuscules
+
+-- 1. Renommer toutes les colonnes existantes en minuscules
+ALTER TABLE `parametres` 
+CHANGE COLUMN `Nom_parametre` `nom_parametre` VARCHAR(50) NOT NULL,
+CHANGE COLUMN `Valeur_parametre` `valeur_parametre` VARCHAR(255) DEFAULT NULL,
+CHANGE COLUMN `Annee_parametre` `annee_parametre` INT(11) DEFAULT NULL,
+CHANGE COLUMN `Groupe_parametre` `groupe_parametre` VARCHAR(50) NOT NULL,
+CHANGE COLUMN `sGroupe_parametre` `sous_groupe_parametre` VARCHAR(50) DEFAULT NULL,
+CHANGE COLUMN `Categorie` `categorie` VARCHAR(50) DEFAULT NULL;
+
+-- 2. Ajout des nouvelles colonnes (en minuscules)
+-- ALTER TABLE `parametres` 
+-- ADD COLUMN `libelle_parametre` VARCHAR(30) NOT NULL AFTER `nom_parametre`,
+-- ADD COLUMN `description_parametre` VARCHAR(50) NULL DEFAULT NULL AFTER `libelle_parametre`;
+
+-- 3. Recréer la clé unique avec les nouveaux noms de colonnes
+ALTER TABLE `parametres` 
+DROP INDEX `Nom_paramètre`,
+ADD UNIQUE KEY `unique_parametre` (`nom_parametre`, `groupe_parametre`, `sous_groupe_parametre`, `categorie`);
+
+-- 4. Mise à jour des valeurs existantes
+
+-- Prochain Numéro Facture
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Prochain numéro de facture',
+    `description_parametre` = ''
+WHERE `nom_parametre` = 'Prochain Numéro Facture';
+
+-- outputDir
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Destination des factures PDF',
+    `description_parametre` = 'Chemin destination factures PDF depuis BackendUrl'
+WHERE `nom_parametre` = 'outputDir';
+
+-- Banque
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Nom de la banque',
+    `description_parametre` = 'Nom, Adresse de la banque bénéficiaire'
+WHERE `nom_parametre` = 'Banque';
+
+-- IBAN
+UPDATE `parametres` 
+SET `libelle_parametre` = 'IBAN',
+    `description_parametre` = 'IBAN du bénéficiaire'
+WHERE `nom_parametre` = 'IBAN';
+
+-- Beneficiaire
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Nom du bénéficiaire',
+    `description_parametre` = 'Nom et adresse du bénéficiaire'
+WHERE `nom_parametre` = 'Beneficiaire';
+
+-- Delai Paiement
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Délai de paiement',
+    `description_parametre` = 'Délai de paiement en jours'
+WHERE `nom_parametre` = 'Delai Paiement';
+
+-- Ligne 1 (Signature)
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Première ligne de signature',
+    `description_parametre` = ''
+WHERE `nom_parametre` = 'Ligne 1';
+
+-- Ligne 2 (Signature)
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Seconde ligne de signature',
+    `description_parametre` = ''
+WHERE `nom_parametre` = 'Ligne 2';
+
+-- Imprimer ristourne
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Impression de la ristourne',
+    `description_parametre` = 'Imprimer ou non la ristourne sur la facture (O/N)'
+WHERE `nom_parametre` = 'Imprimer ristourne';
+
+-- texte_corps - Catégorie TU
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Texte du courriel',
+    `description_parametre` = 'Texte du courriel, proposition 1'
+WHERE `nom_parametre` = 'texte_corps' 
+  AND `categorie` = 'TU';
+
+-- texte_corps - Catégorie VOUS
+UPDATE `parametres` 
+SET `libelle_parametre` = 'Texte du courriel',
+    `description_parametre` = 'Texte du courriel, proposition 2'
+WHERE `nom_parametre` = 'texte_corps' 
+  AND `categorie` = 'VOUS';
+
+-- 5. Vérification des colonnes créées
+SELECT 
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    IS_NULLABLE,
+    COLUMN_DEFAULT,
+    COLUMN_KEY
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'parametres'
+  AND TABLE_SCHEMA = 'factlagrange'
+ORDER BY ORDINAL_POSITION;
+
+-- 6. Vérification des données mises à jour
+SELECT 
+    nom_parametre,
+    libelle_parametre,
+    description_parametre,
+    categorie
+FROM parametres
+WHERE nom_parametre IN (
+    'Prochain Numéro Facture',
+    'outputDir',
+    'Banque',
+    'IBAN',
+    'Beneficiaire',
+    'Delai Paiement',
+    'Ligne 1',
+    'Ligne 2',
+    'Imprimer ristourne',
+    'texte_corps'
+)
+ORDER BY nom_parametre, categorie;

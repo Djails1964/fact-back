@@ -149,26 +149,26 @@ try {
             
             if (isset($_GET['prochainNumeroFacture'])) {
                 // Récupérer le prochain numéro de facture pour l'année spécifiée
-                $annee = intval($_GET['prochainNumeroFacture']);
+                $annee_parametre = intval($_GET['prochainNumeroFacture']);
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET prochain numéro facture pour année: $annee (user: $userId)");
+                    error_log("parametre-api - GET prochain numéro facture pour année: $annee_parametre (user: $userId)");
                 }
                 
-                $resultat = $serviceParametre->getProchainNumeroFacture($annee);
+                $resultat = $serviceParametre->getProchainNumeroFacture($annee_parametre);
                 echo json_encode($resultat);
                 
             } else if (isset($_GET['parametres'])) {
                 // Utiliser la nouvelle fonction getParametres avec filtrage hiérarchique
-                $groupe = isset($_GET['groupe']) ? $_GET['groupe'] : null;
-                $sousGroupe = isset($_GET['sousGroupe']) ? $_GET['sousGroupe'] : null;
+                $groupe_parametre = isset($_GET['groupe_parametre']) ? $_GET['groupe_parametre'] : null;
+                $sous_groupe_parametre = isset($_GET['sous_groupe_parametre']) ? $_GET['sous_groupe_parametre'] : null;
                 $categorie = isset($_GET['categorie']) ? $_GET['categorie'] : null;
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET paramètres: groupe=$groupe, sousGroupe=$sousGroupe, categorie=$categorie (user: $userId)");
+                    error_log("parametre-api - GET paramètres: groupe_parametre=$groupe_parametre, sous_groupe_parametre=$sous_groupe_parametre, categorie=$categorie (user: $userId)");
                 }
                 
-                $resultat = $serviceParametre->getParametres($groupe, $sousGroupe, $categorie);
+                $resultat = $serviceParametre->getParametres($groupe_parametre, $sous_groupe_parametre, $categorie);
                 echo json_encode($resultat);
                 
             } else if (isset($_GET['tarifsLocationSalle']) && $_GET['tarifsLocationSalle'] === 'true') {
@@ -180,33 +180,33 @@ try {
                 $resultat = $serviceParametre->getTarifsLocationSalle();
                 echo json_encode($resultat);
                 
-            } else if (isset($_GET['groupe']) && isset($_GET['sGroupe'])) {
-                // Récupérer les paramètres par groupe et sous-groupe
-                $groupeParametre = $_GET['groupe'];
-                $sGroupeParametre = $_GET['sGroupe'];
+            } else if (isset($_GET['groupe_parametre']) && isset($_GET['sGroupe'])) {
+                // Récupérer les paramètres par groupe_parametre et sous-groupe_parametre
+                $groupe_parametre = $_GET['groupe_parametre'];
+                $sous_groupe_parametre = $_GET['sGroupe'];
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET paramètres par sous-groupe: $groupeParametre/$sGroupeParametre (user: $userId)");
+                    error_log("parametre-api - GET paramètres par sous-groupe_parametre: $groupe_parametre/$sous_groupe_parametre (user: $userId)");
                 }
                 
-                $resultat = $serviceParametre->getParametresParSousGroupe($groupeParametre, $sGroupeParametre);
+                $resultat = $serviceParametre->getParametresParSousGroupe($groupe_parametre, $sous_groupe_parametre);
                 echo json_encode($resultat);
                 
-            } else if (isset($_GET['groupe']) && !isset($_GET['nomParametre'])) {
-                // Récupérer tous les paramètres d'un groupe spécifique
-                $groupeParametre = $_GET['groupe'];
+            } else if (isset($_GET['groupe_parametre']) && !isset($_GET['nom_parametre'])) {
+                // Récupérer tous les paramètres d'un groupe_parametre spécifique
+                $groupe_parametre = $_GET['groupe_parametre'];
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET paramètres par groupe: $groupeParametre (user: $userId)");
+                    error_log("parametre-api - GET paramètres par groupe_parametre: $groupe_parametre (user: $userId)");
                 }
                 
-                $resultat = $serviceParametre->getParametresParGroupe($groupeParametre);
+                $resultat = $serviceParametre->getParametresParGroupe($groupe_parametre);
                 echo json_encode($resultat);
                 
             } else if (isset($_GET['tousGroupes']) && $_GET['tousGroupes'] === 'true') {
-                // Récupérer tous les paramètres organisés par groupe
+                // Récupérer tous les paramètres organisés par groupe_parametre
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET tous les paramètres par groupe (user: $userId)");
+                    error_log("parametre-api - GET tous les paramètres par groupe_parametre (user: $userId)");
                 }
                 
                 $resultat = $serviceParametre->getParametresParGroupe();
@@ -221,24 +221,24 @@ try {
                 $resultat = $serviceParametre->getAllTarifs();
                 echo json_encode($resultat);
                 
-            } else if (isset($_GET['nomParametre']) && isset($_GET['groupe'])) {
-                // Récupérer un paramètre spécifique avec groupe obligatoire
-                $nomParametre = $_GET['nomParametre'];
-                $groupeParametre = $_GET['groupe'];
-                $sGroupeParametre = isset($_GET['sGroupe']) ? $_GET['sGroupe'] : null;
+            } else if (isset($_GET['nom_parametre']) && isset($_GET['groupe_parametre'])) {
+                // Récupérer un paramètre spécifique avec groupe_parametre obligatoire
+                $nom_parametre = $_GET['nom_parametre'];
+                $groupe_parametre = $_GET['groupe_parametre'];
+                $sous_groupe_parametre = isset($_GET['sGroupe']) ? $_GET['sGroupe'] : null;
                 $categorie = isset($_GET['categorie']) ? $_GET['categorie'] : null;
-                $annee = isset($_GET['annee']) ? intval($_GET['annee']) : null;
+                $annee_parametre = isset($_GET['annee_parametre']) ? intval($_GET['annee_parametre']) : null;
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET paramètre spécifique: $nomParametre dans $groupeParametre (user: $userId)");
+                    error_log("parametre-api - GET paramètre spécifique: $nom_parametre dans $groupe_parametre (user: $userId)");
                 }
                 
                 $resultat = $serviceParametre->getParametre(
-                    $nomParametre, 
-                    $groupeParametre, 
-                    $sGroupeParametre, 
+                    $nom_parametre, 
+                    $groupe_parametre, 
+                    $sous_groupe_parametre, 
                     $categorie, 
-                    $annee
+                    $annee_parametre
                 );
                 
                 if (is_dev_mode()) {
@@ -247,16 +247,16 @@ try {
                 
                 echo json_encode($resultat);
                 
-            } else if (isset($_GET['nomParametre'])) {
-                // Pour la rétrocompatibilité - Récupérer un paramètre sans préciser le groupe
-                $annee = isset($_GET['annee']) ? intval($_GET['annee']) : null;
-                $nomParametre = $_GET['nomParametre'];
+            } else if (isset($_GET['nom_parametre'])) {
+                // Pour la rétrocompatibilité - Récupérer un paramètre sans préciser le groupe_parametre
+                $annee_parametre = isset($_GET['annee_parametre']) ? intval($_GET['annee_parametre']) : null;
+                $nom_parametre = $_GET['nom_parametre'];
                 
                 if (is_dev_mode()) {
-                    error_log("parametre-api - GET paramètre simple (rétrocompatibilité): $nomParametre, année: $annee (user: $userId)");
+                    error_log("parametre-api - GET paramètre simple (rétrocompatibilité): $nom_parametre, année: $annee_parametre (user: $userId)");
                 }
                 
-                $resultat = $serviceParametre->getParametreSimple($annee, $nomParametre);
+                $resultat = $serviceParametre->getParametreSimple($annee_parametre, $nom_parametre);
                 echo json_encode($resultat);
                 
             } else {
@@ -290,12 +290,12 @@ try {
             }
             
             // Vérifier que les données obligatoires sont présentes
-            if (!isset($data['nomParametre']) || !isset($data['valeurParametre']) || !isset($data['groupeParametre'])) {
-                throw new Exception('Données de paramètre incomplètes (nomParametre, valeurParametre et groupeParametre sont obligatoires)');
+            if (!isset($data['nom_parametre']) || !isset($data['valeur_parametre']) || !isset($data['groupe_parametre'])) {
+                throw new Exception('Données de paramètre incomplètes (nom_parametre, valeur_parametre et groupe_parametre sont obligatoires)');
             }
             
             if (is_dev_mode()) {
-                error_log("parametre-api - POST enregistrement paramètre: " . $data['nomParametre'] . " (user: $userId)");
+                error_log("parametre-api - POST enregistrement paramètre: " . $data['nom_parametre'] . " (user: $userId)");
             }
             
             $resultat = $serviceParametre->enregistrerParametre($data);
