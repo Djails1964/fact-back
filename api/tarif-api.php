@@ -88,12 +88,40 @@ try {
     // ====================================
     // TRAITEMENT DES REQUÊTES
     // ====================================
+
     
     switch ($method) {
         case 'GET':
             // ===== ROUTES GET (accessible à tous les utilisateurs authentifiés) =====
-            
-            if (isset($_GET['services'])) {
+            // ===== NOUVEAU: Données initiales unifiées =====
+            if (isset($_GET['donneesInitiales'])) {
+                if (is_dev_mode()) {
+                    error_log("📥 tarif-api - GET données initiales unifiées");
+                }
+                
+                $actifsUniquement = isset($_GET['actifs']) && $_GET['actifs'] === 'true';
+                $resultat = $serviceTarif->getDonneesInitiales($actifsUniquement);
+                
+            } else if (isset($_GET['donneesFacturation'])) {
+                if (is_dev_mode()) {
+                    error_log("📥 tarif-api - GET données facturation optimisées");
+                }
+                
+                $resultat = $serviceTarif->getDonneesFacturation();
+                
+            } else if (isset($_GET['servicesAvecUnites'])) {
+                if (is_dev_mode()) {
+                    error_log("📥 tarif-api - GET services avec unités liées");
+                }
+                
+                $actifsUniquement = isset($_GET['actifs']) && $_GET['actifs'] === 'true';
+                $services = $serviceTarif->getServicesAvecUnites($actifsUniquement);
+                $resultat = [
+                    'success' => true,
+                    'services' => $services
+                ];
+                
+            } else if (isset($_GET['services'])) {
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET services pour user: $userId");
                 }
@@ -114,7 +142,7 @@ try {
                     error_log("📥 tarif-api - GET unités pour service - résultat: " . json_encode($resultat));
                 }
                 
-            } else if (isset($_GET['typesTarifs'])) {
+            } else if (isset($_GET['types_tarifs'])) {
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - GET types tarifs");
                 }
@@ -238,11 +266,12 @@ try {
                 $resultat = $serviceTarif->checkUniteUsage($id_unite);
                 
             } else if (isset($_GET['checkServiceUsage'])) {
-                $id_service = intval($_GET['checkServiceUsage']);
+                $service_id = intval($_GET['checkServiceUsage']);
+                error_log("tarif-api - GET[checkServiceUsage] - serviceId :". $service_id);
                 if (is_dev_mode()) {
-                    error_log("📥 tarif-api - Check usage service: $id_service");
+                    error_log("📥 tarif-api - Check usage service: $service_id");
                 }
-                $resultat = $serviceTarif->checkServiceUsage($id_service);
+                $resultat = $serviceTarif->checkServiceUsage($service_id);
                 
             } else if (isset($_GET['checkServiceUniteUsageInFacture']) && isset($_GET['id_service']) && isset($_GET['id_unite'])) {
                 $id_service = intval($_GET['id_service']);
@@ -336,7 +365,7 @@ try {
                     
                     switch ($data['action']) {
                         case 'createService':
-                            if (!isset($data['code']) || !isset($data['nom'])) {
+                            if (!isset($data['code_service']) || !isset($data['nom_service'])) {
                                 error_log("❌ tarif-api - POST createService - Données incomplètes");
                                 error_log("Données reçues: " . json_encode($data));
                                 throw new Exception('Données incomplètes pour la création d\'un service');
@@ -345,14 +374,14 @@ try {
                             break;
                             
                         case 'createUnite':
-                            if (!isset($data['code']) || !isset($data['nom'])) {
+                            if (!isset($data['code_unite']) || !isset($data['nom_unite'])) {
                                 throw new Exception('Données incomplètes pour la création d\'une unité');
                             }
                             $resultat = $serviceTarif->createUnite($data);
                             break;
                             
                         case 'createTypeTarif':
-                            if (!isset($data['code']) || !isset($data['nom'])) {
+                            if (!isset($data['code_type_tarif']) || !isset($data['nom_type_tarif'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un type de tarif');
                             }
                             $resultat = $serviceTarif->createTypeTarif($data);
@@ -360,7 +389,7 @@ try {
                             
                         case 'createTarif':
                             error_log('tarif-api - createTarif - données reçues: ' . json_encode($data));
-                            if (!isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['type_tarif_id']) || !isset($data['prix'])) {
+                            if (!isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['id_type_tarif']) || !isset($data['prix_tarif_standard'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un tarif');
                             }
                             $resultat = $serviceTarif->createTarif($data);

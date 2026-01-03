@@ -423,7 +423,9 @@ class ServiceFacture {
             // Si le délai de paiement n'est pas spécifié dans les options, le récupérer des paramètres
             if (!$delaiPaiement) {
                 error_log("Récupération du délai de paiement via le service Parametre");
-                $delaiPaiement = $this->serviceParametre->getParametre('Delai Paiement', 'Facture', 'Paiement')['parametre']['Valeur_parametre'] ?? 30;
+                $parametreResult = $this->serviceParametre->getParametre('Delai Paiement', 'Facture', 'Paiement');
+                error_log("résultat optention délai de paiement dans parametre:". json_encode($parametreResult));
+                $delaiPaiement = $this->serviceParametre->getParametre('Delai Paiement', 'Facture', 'Paiement')['parametre']['valeur_parametre'] ?? 30;
             }
             error_log("Délai de paiement récupéré: $delaiPaiement jours");
 
@@ -433,7 +435,7 @@ class ServiceFacture {
             error_log("Vérification du flag pour imprimer la ristourne");
             if (!$printRistourne) {
                 error_log("Récupération du paramètre 'Imprimer ristourne' via le service Parametre");
-                $printRistourne = (mb_strtoupper($this->serviceParametre->getParametre('Imprimer ristourne', 'Facture', 'Ristourne')['parametre']['Valeur_parametre']) === 'O');
+                $printRistourne = (mb_strtoupper($this->serviceParametre->getParametre('Imprimer ristourne', 'Facture', 'Ristourne')['parametre']['valeur_parametre']) === 'O');
             }
             error_log("Flag pour imprimer la ristourne: " . ($printRistourne ? 'Oui' : 'Non'));
 
@@ -454,7 +456,7 @@ class ServiceFacture {
                     foreach ($relationsBancairesResult['parametres']['Relations Bancaires'] as $sousGroupe => $categories) {
                         foreach ($categories as $categorie => $params) {
                             foreach ($params as $param) {
-                                $relationsBancaires[$param['Nom_parametre']] = $param['Valeur_parametre'];
+                                $relationsBancaires[$param['nom_parametre']] = $param['valeur_parametre'];
                             }
                         }
                     }
@@ -478,7 +480,7 @@ class ServiceFacture {
                     foreach ($signatureResult['parametres']['Facture'] as $sousGroupe => $categories) {
                         foreach ($categories as $categorie => $params) {
                             foreach ($params as $param) {
-                                $signature[$param['Nom_parametre']] = $param['Valeur_parametre'];
+                                $signature[$param['nom_parametre']] = $param['valeur_parametre'];
                             }
                         }
                     }
@@ -508,7 +510,7 @@ class ServiceFacture {
             // Si le paramètre outputDir n'est pas spécifié dans les options, utiliser la valeur par défaut           
             if (!$outputDir) {
                 // Utiliser le nouveau système de paramètres avec groupe
-                // $outputDir = $this->serviceParametre->getParametre('outputDir', 'Facture')['parametre']['Valeur_parametre'] ?? 'storage/invoices';
+                // $outputDir = $this->serviceParametre->getParametre('outputDir', 'Facture')['parametre']['valeur_parametre'] ?? 'storage/invoices';
                 error_log("Récupération du dossier de sortie pour le PDF via le service Parametre");
                 $outputDir = factures_path(null, $this->serviceParametre);
             }
@@ -699,7 +701,7 @@ class ServiceFacture {
             if (!empty($factureDetails['factfilename'])) {
                 // Récupérer le répertoire de sortie des factures
                 $outputDirResult = $this->serviceParametre->getParametre('OutputDir', 'Facture', 'Chemin');
-                $outputDir = $outputDirResult['success'] ? $outputDirResult['parametre']['Valeur_parametre'] : 'storage/factures';
+                $outputDir = $outputDirResult['success'] ? $outputDirResult['parametre']['valeur_parametre'] : 'storage/factures';
                 
                 // Construire le chemin complet (solution qui fonctionne)
                 $pdfPath = realpath(APP_ROOT . '/' . $outputDir . '/' . $factureDetails['factfilename']);

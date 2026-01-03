@@ -43,22 +43,40 @@ class ServiceControleur {
         return $this->fetchOne($sql, [$id]);
     }
     
-    public function create(array $data): int {
-        if (isset($data['isDefault']) && $data['isDefault']) {
-            $this->resetDefaultServices();
-        }
+    public function create(array $data): array {
+        error_log("ServiceControleur - create - data : ". json_encode($data));
+        $actif = toTinyInt($data['actif'] ?? 1);
+        $isDefault = toTinyInt($data['is_default'] ?? 0);
+        error_log("ServiceControleur - create - actif ? ". $actif);
+        error_log("ServiceControleur - create - default ? ". $isDefault);
         
-        $sql = "INSERT INTO services (code, nom, description, actif, isDefault) VALUES (?, ?, ?, ?, ?)";
+        $sql = "INSERT INTO services (code, nom, description, actif, isDefault) 
+                VALUES (?, ?, ?, ?, ?)";
+        
         $this->executeQuery($sql, [
-            // ✅ CORRECTION: Support des deux formats de noms de champs
-            $data['code_service'] ?? $data['code'] ?? null,
-            $data['nom_service'] ?? $data['nom'] ?? null,
-            $data['description_service'] ?? $data['description'] ?? null,
-            isset($data['actif']) ? ($data['actif'] ? 1 : 0) : 1,
-            isset($data['isDefault']) && $data['isDefault'] ? 1 : 0
+            $data['code_service'],
+            $data['nom_service'],
+            $data['description_service'] ?? null,
+            $actif,
+            $isDefault
         ]);
         
-        return $this->getLastInsertId();
+        $id = $this->getLastInsertId();
+        
+        // Construction de l'objet à partir des données déjà disponibles
+        $objet = [
+            'id_service' => $id,
+            'code_service' => $data['code_service'],
+            'nom_service' => $data['nom_service'],
+            'description_service' => $data['description_service'] ?? null,
+            'actif' => $actif,
+            'is_default' => $isDefault
+        ];
+        
+        return [
+            'id' => $id,
+            'service' => $objet
+        ];
     }
     
     public function update(int $id, array $data): bool {
@@ -134,8 +152,8 @@ class ServiceControleur {
     }
     
     public function checkUsage(int $id): array {
-        return $this->checkUsageInTables($id, 'id_service', [
-            'services_unites', 'tarifs', 'tarifs_speciaux'
+        return $this->checkUsageInTables($id, 'service_id', [
+            'lignesfacture'
         ]);
     }
     

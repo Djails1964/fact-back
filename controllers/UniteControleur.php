@@ -44,14 +44,35 @@ class UniteControleur {
                     u.description as description_unite 
                 FROM unites u 
                 JOIN services_unites su ON u.id = su.unite_id 
-                WHERE su.service_id = ? AND su.actif = 1 
+                WHERE su.service_id = ? 
                 ORDER BY u.nom";
         
         return $this->fetchAll($sql, [$id_service]);
     }
     
     public function getServicesUnites(): array {
-        $sql = "SELECT service_id as id_service, unite_id as id_unite FROM services_unites WHERE actif = 1";
+        $sql = "SELECT service_id as id_service, unite_id as id_unite FROM services_unites";
+        return $this->fetchAll($sql);
+    }
+
+    /**
+     * Récupère toutes les relations services-unités avec les détails des unités
+     * Inclut le flag isDefault pour savoir quelle unité est par défaut pour chaque service
+     * @return array
+     */
+    public function getServicesUnitesDetaillees(): array {
+        $sql = "SELECT 
+                    su.service_id as id_service,
+                    su.unite_id as id_unite,
+                    su.isDefault as is_default,
+                    su.actif as actif,
+                    u.code as code_unite,
+                    u.nom as nom_unite,
+                    u.description as description_unite
+                FROM services_unites su
+                JOIN unites u ON su.unite_id = u.id
+                ORDER BY su.service_id, u.nom";
+        
         return $this->fetchAll($sql);
     }
     
@@ -64,24 +85,31 @@ class UniteControleur {
         return $result ? (int)$result['id_unite'] : null;
     }
     
-    public function create(array $data): int {
-        // ✅ CORRECTION: Adapter aux nouveaux noms de champs reçus du frontend
-        $sql = "INSERT INTO unites (code, nom, description) VALUES (?, ?, ?)";
+    public function create(array $data): array {
+        
+        $sql = "INSERT INTO unites (code, nom, description) 
+                VALUES (?, ?, ?)";
+        
         $this->executeQuery($sql, [
-            $data['code_unite'] ?? $data['code'] ?? null,
-            $data['nom_unite'] ?? $data['nom'] ?? null,
-            $data['description_unite'] ?? $data['description'] ?? null
+            $data['code_unite'],
+            $data['nom_unite'],
+            $data['description_unite'] ?? null
         ]);
         
         $id_unite = $this->getLastInsertId();
         
-        // Si un service est spécifié, créer la liaison
-        if (isset($data['id_service']) || isset($data['id_service'])) {
-            $id_service = $data['id_service'] ?? $data['id_service'];
-            $this->linkToService($id_unite, $id_service, $data['isDefault'] ?? false);
-        }
+        // Construction de l'objet à partir des données déjà disponibles
+        $objet = [
+            'id_unite' => $id_unite,
+            'code_unite' => $data['code_unite'],
+            'nom_unite' => $data['nom_unite'],
+            'description_unite' => $data['description_unite'] ?? null
+        ];
         
-        return $id_unite;
+        return [
+            'id_unite' => $id_unite,
+            'unite' => $objet
+        ];
     }
     
     public function update(int $id_unite, array $data): bool {
@@ -141,18 +169,13 @@ class UniteControleur {
     public function linkToService(int $id_unite, int $id_service, bool $isDefault = false): bool {
         // Vérifier si la liaison existe déjà
         $existingLink = $this->fetchOne(
-            "SELECT id, actif FROM services_unites WHERE service_id = ? AND unite_id = ?",
+            "SELECT id FROM services_unites WHERE service_id = ? AND unite_id = ?",
             [$id_service, $id_unite]
         );
         
-        if ($existingLink) {
-            // Si la liaison existe mais est inactive, la réactiver
-            if (!$existingLink['actif']) {
-                $this->executeQuery("UPDATE services_unites SET actif = 1 WHERE id = ?", [$existingLink['id']]);
-            }
-        } else {
-            // Créer une nouvelle liaison
-            $sql = "INSERT INTO services_unites (service_id, unite_id, actif, isDefault) VALUES (?, ?, 1, ?)";
+        if (!$existingLink) {
+           // Créer une nouvelle liaison
+            $sql = "INSERT INTO services_unites (service_id, unite_id, isDefault) VALUES (?, ?, ?)";
             $this->executeQuery($sql, [$id_service, $id_unite, $isDefault ? 1 : 0]);
         }
         
@@ -173,29 +196,6 @@ class UniteControleur {
                 'success' => false,
                 'message' => $checkFacture['message'],
                 'action' => 'impossible'
-            ];
-        }
-        
-        // Vérifier si utilisée dans des tarifs
-        $checkTarifs = $this->fetchOne(
-            "SELECT 1 FROM tarifs WHERE service_id = ? AND unite_id = ? 
-             UNION 
-             SELECT 1 FROM tarifs_speciaux WHERE service_id = ? AND unite_id = ? 
-             LIMIT 1",
-            [$id_service, $id_unite, $id_service, $id_unite]
-        );
-        
-        if ($checkTarifs) {
-            // Désactiver la liaison
-            $this->executeQuery(
-                "UPDATE services_unites SET actif = 0 WHERE service_id = ? AND unite_id = ?",
-                [$id_service, $id_unite]
-            );
-            
-            return [
-                'success' => true,
-                'message' => 'La liaison a été désactivée car elle est utilisée dans des tarifs',
-                'action' => 'desactive'
             ];
         } else {
             // Supprimer la liaison

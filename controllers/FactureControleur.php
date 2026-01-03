@@ -123,17 +123,21 @@ class FactureControleur {
             $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
             
+            // Calculer le montant brut (montant_total + ristourne)
+            $montantBrut = $montantTotal + $ristourne;
+            
             // Insérer la facture
             $dateEdition = date('Y-m-d H:i:s'); // Date actuelle
             
             $stmt = $conn->prepare("INSERT INTO facture 
-                (numero_facture, date_facture, montant_total, id_client, date_edition, ristourne) 
-                VALUES (?, ?, ?, ?, ?, ?)");
+                (numero_facture, date_facture, montant_total, montant_brut, id_client, date_edition, ristourne) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)");
             
             $stmt->execute([
                 $data['numero_facture'],
                 $data['date_facture'],
-                $montantTotal, // Montant recalculé
+                $montantTotal, // Montant recalculé (net)
+                $montantBrut, // Montant brut (total + ristourne)
                 $data['id_client'],
                 $dateEdition,
                 $ristourne
@@ -256,15 +260,24 @@ class FactureControleur {
             $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
             
+            // Calculer le montant brut (montant_total + ristourne)
+            $montantBrut = $montantTotal + $ristourne;
+            
             // Mettre à jour la facture - ✅ CORRECTION: Utilisation de id_client résolu
             $stmt = $conn->prepare("UPDATE facture 
-                SET numero_facture = ?, date_facture = ?, montant_total = ?, id_client = ?, ristourne = ?
+                SET numero_facture = ?, 
+                    date_facture = ?, 
+                    montant_total = ?,
+                    montant_brut = ?,
+                    id_client = ?, 
+                    ristourne = ?
                 WHERE id_facture = ?");
             
             $stmt->execute([
                 $data['numero_facture'],
                 $data['date_facture'],
                 $montantTotal,
+                $montantBrut,
                 $id_client, // ✅ CORRECTION: Utilisation de la variable résolue
                 $ristourne,
                 $id
@@ -748,24 +761,24 @@ class FactureControleur {
      * @param string $numeroFacture Numéro de facture actuel au format NNN.YYYY
      * @throws Exception En cas d'erreur
      */
-    private static function mettreAJourProchainNumero($conn, $numeroFacture) {
+    private static function mettreAJourProchainNumero($conn, $numero_facture) {
         // Extraire l'année et le numéro de facture
-        $numeroFactureParts = explode('.', $numeroFacture);
-        if (count($numeroFactureParts) != 2) {
+        $numero_facture_parts = explode('.', $numero_facture);
+        if (count($numero_facture_parts) != 2) {
             throw new Exception('Format de numéro de facture invalide');
         }
         
-        $nomParametre = 'Prochain Numéro Facture';
-        $numeroActuel = intval($numeroFactureParts[0]);
-        $annee = intval($numeroFactureParts[1]);
-        $prochainNumero = $numeroActuel + 1;
+        $nom_parametre = 'Prochain Numéro Facture';
+        $numero_actuel = intval($numero_facture_parts[0]);
+        $annee_parametre = intval($numero_facture_parts[1]);
+        $prochain_numero_facture = $numero_actuel + 1;
         
         // Créer les données pour le paramètre
         $paramData = [
-            'nomParametre' => $nomParametre,
-            'valeurParametre' => $prochainNumero,
-            'annee' => $annee,
-            'groupeParametre' => 'Facture',
+            'nom_parametre' => $nom_parametre,
+            'valeur_parametre' => $prochain_numero_facture,
+            'annee_parametre' => $annee_parametre,
+            'groupe_parametre' => 'Facture',
             'sous_groupe_parametre' => 'Numéro'
         ];
         

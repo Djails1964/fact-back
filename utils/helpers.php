@@ -213,4 +213,18 @@ if (!function_exists('normalizeForFilename')) {
     }
 }
 
+/**
+ * Convertit une valeur reçue (booléen, chaîne, entier) en un entier 0 ou 1 
+ * pour l'insertion dans une colonne TINYINT(1) de la DB.
+ * * @param mixed $value La valeur à convertir (true, false, '1', 1, 0, 'oui', etc.).
+ * @return int 1 pour vrai, 0 pour faux.
+ */
+function toTinyInt(mixed $value): int {
+    // PHP convertit la valeur en booléen (bool) :
+    // - false, 0, '0', '', null, [] deviennent false
+    // - tout le reste (y compris true, 1, '1', 'false') devient true
+    // Le cast (int) convertit ensuite (true) en 1 et (false) en 0.
+    return (int)(bool)$value;
+}
+
 // Vous pouvez ajouter d'autres fonctions utilitaires ici

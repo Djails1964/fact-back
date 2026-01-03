@@ -1,7 +1,9 @@
 <?php
 /**
- * ServicePaiement.php - Version complète avec toutes les méthodes du contrôleur
+ * ServicePaiement.php - Version refactorisée
  * Service pour la gestion des paiements avec logging complet
+ * ✅ REFACTORISÉ : Utilise PaiementControleur pour toutes les requêtes SQL
+ * ✅ Pas de SQL direct dans ce fichier
  */
 
 require_once realpath(__DIR__ . '/../controllers/PaiementControleur.php');
@@ -30,6 +32,7 @@ class ServicePaiement {
     
     /**
      * Création d'un nouveau paiement
+     * ✅ REFACTORISÉ : Utilise PaiementControleur::getFactureInfoPourLog
      * @param array $data Les données du paiement
      * @return array Résultat de l'opération
      */
@@ -46,15 +49,8 @@ class ServicePaiement {
                 throw new Exception('Données obligatoires manquantes');
             }
             
-            // Récupérer les infos de la facture pour le log
-            $sqlFacture = "SELECT f.numero_facture, f.montant_total, 
-                                  CONCAT(c.prenom, ' ', c.nom) as nom_client
-                           FROM facture f 
-                           JOIN client c ON f.id_client = c.id 
-                           WHERE f.id_facture = ?";
-            $stmtFacture = $this->conn->prepare($sqlFacture);
-            $stmtFacture->execute([$data['id_facture']]);
-            $factureInfo = $stmtFacture->fetch(PDO::FETCH_ASSOC);
+            // ✅ REFACTORISÉ : Récupérer les infos de la facture via le contrôleur
+            $factureInfo = PaiementControleur::getFactureInfoPourLog($this->conn, $data['id_facture']);
             
             // Appeler le contrôleur pour enregistrer le paiement
             $resultat = PaiementControleur::enregistrerPaiement($this->conn, $data['id_facture'], $data);
@@ -75,8 +71,8 @@ class ServicePaiement {
                     'id_paiement' => $resultat['id_paiement'],
                     'numero_paiement' => $resultat['numero_paiement'],
                     'id_facture' => $data['id_facture'],
-                    'numero_facture' => $factureInfo['numero_facture'],
-                    'client_nom' => $factureInfo['nom_client'],
+                    'numero_facture' => $factureInfo['numero_facture'] ?? null,
+                    'client_nom' => $factureInfo['nom_client'] ?? null,
                     'montant_paye' => floatval($data['montant_paye']),
                     'methode_paiement' => $data['methode_paiement'],
                     'date_paiement' => $data['date_paiement'],
@@ -156,7 +152,7 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ NOUVELLE : Récupération de la liste complète des paiements avec filtrage
+     * Récupération de la liste complète des paiements avec filtrage
      * @param array $options Options de filtrage et pagination
      * @return array Liste des paiements avec pagination
      */
@@ -190,7 +186,7 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ NOUVELLE : Récupération des statistiques globales des paiements
+     * Récupération des statistiques globales des paiements
      * @param int|null $annee Année pour filtrer les statistiques
      * @return array Statistiques complètes
      */
@@ -224,7 +220,7 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ NOUVELLE : Récupération de l'historique des paiements d'une facture
+     * Récupération de l'historique des paiements d'une facture
      * @param int $factureId ID de la facture
      * @return array Liste des paiements
      */
@@ -259,7 +255,8 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ EXISTANTE : Modification d'un paiement existant
+     * Modification d'un paiement existant
+     * ✅ REFACTORISÉ : Utilise PaiementControleur::getPaiementInfoPourLog
      * @param int $id ID du paiement
      * @param array $data Les nouvelles données du paiement
      * @return array Résultat de l'opération
@@ -271,16 +268,8 @@ class ServicePaiement {
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            // Récupérer les données actuelles du paiement pour comparaison
-            $sqlPaiementActuel = "SELECT p.*, f.numero_facture, 
-                                         CONCAT(c.prenom, ' ', c.nom) as nom_client
-                                  FROM paiement p
-                                  JOIN facture f ON p.id_facture = f.id_facture
-                                  JOIN client c ON f.id_client = c.id
-                                  WHERE p.id_paiement = ?";
-            $stmtActuel = $this->conn->prepare($sqlPaiementActuel);
-            $stmtActuel->execute([$id_paiement]);
-            $paiementActuel = $stmtActuel->fetch(PDO::FETCH_ASSOC);
+            // ✅ REFACTORISÉ : Récupérer les données actuelles du paiement via le contrôleur
+            $paiementActuel = PaiementControleur::getPaiementInfoPourLog($this->conn, $id_paiement);
             
             if (!$paiementActuel) {
                 throw new Exception('Paiement non trouvé');
@@ -374,7 +363,8 @@ class ServicePaiement {
     }
 
     /**
-     * ✅ EXISTANTE : Annulation d'un paiement (remplace la suppression)
+     * Annulation d'un paiement (soft delete)
+     * ✅ REFACTORISÉ : Utilise PaiementControleur::getPaiementInfoPourLog
      * @param int $id ID du paiement
      * @param string $motif_annulation Motif de l'annulation
      * @return array Résultat de l'opération
@@ -386,16 +376,8 @@ class ServicePaiement {
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            // Récupérer les informations du paiement avant annulation
-            $sqlPaiement = "SELECT p.*, f.numero_facture, 
-                                CONCAT(c.prenom, ' ', c.nom) as nom_client
-                            FROM paiement p
-                            JOIN facture f ON p.id_facture = f.id_facture
-                            JOIN client c ON f.id_client = c.id
-                            WHERE p.id_paiement = ?";
-            $stmtPaiement = $this->conn->prepare($sqlPaiement);
-            $stmtPaiement->execute([$id_paiement]);
-            $paiementInfo = $stmtPaiement->fetch(PDO::FETCH_ASSOC);
+            // ✅ REFACTORISÉ : Récupérer les informations du paiement via le contrôleur
+            $paiementInfo = PaiementControleur::getPaiementInfoPourLog($this->conn, $id_paiement);
             
             if (!$paiementInfo) {
                 throw new Exception('Paiement non trouvé');
@@ -468,7 +450,8 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ EXISTANTE : Suppression d'un paiement
+     * Suppression d'un paiement (hard delete)
+     * ✅ REFACTORISÉ : Utilise PaiementControleur::getPaiementInfoPourLog
      * @param int $id ID du paiement
      * @return array Résultat de l'opération
      */
@@ -479,16 +462,8 @@ class ServicePaiement {
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            // Récupérer les informations du paiement avant suppression
-            $sqlPaiement = "SELECT p.*, f.numero_facture, 
-                                   CONCAT(c.prenom, ' ', c.nom) as nom_client
-                            FROM paiement p
-                            JOIN facture f ON p.id_facture = f.id_facture
-                            JOIN client c ON f.id_client = c.id
-                            WHERE p.id_paiement = ?";
-            $stmtPaiement = $this->conn->prepare($sqlPaiement);
-            $stmtPaiement->execute([$id_paiement]);
-            $paiementInfo = $stmtPaiement->fetch(PDO::FETCH_ASSOC);
+            // ✅ REFACTORISÉ : Récupérer les informations du paiement via le contrôleur
+            $paiementInfo = PaiementControleur::getPaiementInfoPourLog($this->conn, $id_paiement);
             
             if (!$paiementInfo) {
                 throw new Exception('Paiement non trouvé');
@@ -555,7 +530,7 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ NOUVELLE : Récupération des statistiques de paiement d'une facture
+     * Récupération des statistiques de paiement d'une facture
      * @param int $factureId ID de la facture
      * @return array Statistiques de paiement
      */
@@ -590,7 +565,7 @@ class ServicePaiement {
     }
     
     /**
-     * ✅ NOUVELLE : Alias pour compatibilité avec PaiementService.js
+     * Alias pour compatibilité avec PaiementService.js
      * @param int $factureId ID de la facture
      * @return array Liste des paiements
      */

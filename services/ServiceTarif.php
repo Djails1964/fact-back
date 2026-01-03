@@ -110,11 +110,13 @@ class ServiceTarif {
         if ($this->useNewServiceController) {
             return $this->executeWithTransaction(function() use ($data) {
                 try {
-                    $id = $this->serviceControleur->create($data);
+                    // Le contrôleur retourne maintenant ['id' => X, 'service' => {...}]
+                    $result = $this->serviceControleur->create($data);
                     return [
                         'success' => true,
                         'message' => 'Service créé avec succès',
-                        'id' => $id
+                        'id' => $result['id'],
+                        'service' => $result['service']
                     ];
                 } catch (Exception $e) {
                     return [
@@ -123,7 +125,6 @@ class ServiceTarif {
                     ];
                 }
             }, $useTransaction);
-
         }
     }
     
@@ -165,6 +166,7 @@ class ServiceTarif {
     public function checkServiceUsage($id) {
         if ($this->useNewServiceController) {
             try {
+                error_log("ServiceTarif - checkServiceUsage pour le service #id: ". $id);
                 return $this->serviceControleur->checkUsage($id);
             } catch (Exception $e) {
                 return [
@@ -213,10 +215,18 @@ class ServiceTarif {
         if ($this->useNewUniteController) {
             return $this->executeWithTransaction(function() use ($data) {
                 try {
-                    $id = $this->uniteControleur->create($data);
-                    return ['success' => true, 'message' => 'Unité créée avec succès', 'id' => $id];
+                    $result = $this->uniteControleur->create($data);
+                    return [
+                        'success' => true,
+                        'message' => 'Unité créée avec succès',
+                        'id_unite' => $result['id_unite'],
+                        'unite' => $result['unite']
+                    ];
                 } catch (Exception $e) {
-                    return ['success' => false, 'message' => 'Erreur lors de la création de l\'unité: ' . $e->getMessage()];
+                    return [
+                        'success' => false,
+                        'message' => 'Erreur lors de la création de l\'unité: ' . $e->getMessage()
+                    ];
                 }
             }, $useTransaction);
 
@@ -270,7 +280,57 @@ class ServiceTarif {
         if ($this->useNewUniteController) {
             return $this->executeWithTransaction(function() use ($id_service, $id_unite) {
                 try {
-                    return $this->uniteControleur->unlinkFromService($id_unite, $id_service);
+                    // ✅ ÉTAPE 0: Vérifier si la liaison est utilisée dans des factures
+                    $usageCheck = $this->checkServiceUniteUsageInFacture($id_service, $id_unite);
+                    
+                    if (!$usageCheck['success']) {
+                        return $usageCheck; // Retourner l'erreur de vérification
+                    }
+                    
+                    if ($usageCheck['isUsed']) {
+                        return [
+                            'success' => false,
+                            'message' => "Cette liaison service-unité est utilisée dans {$usageCheck['count']} ligne(s) de facture et ne peut pas être supprimée",
+                            'isUsed' => true,
+                            'count' => $usageCheck['count']
+                        ];
+                    }
+                    
+                    // ✅ ÉTAPE 1: Supprimer tous les tarifs standards associés via TarifControleur
+                    $nbTarifsStandardSupprimes = $this->tarifControleur->deleteTarifsStandardsByServiceAndUnite(
+                        $id_service, 
+                        $id_unite
+                    );
+                    
+                    // ✅ ÉTAPE 2: Supprimer tous les tarifs spéciaux associés via TarifControleur
+                    $nbTarifsSpeciauxSupprimes = $this->tarifControleur->deleteTarifsSpeciauxByServiceAndUnite(
+                        $id_service, 
+                        $id_unite
+                    );
+                    
+                    // ✅ ÉTAPE 3: Dissocier le service et l'unité via UniteControleur
+                    $unlinkResult = $this->uniteControleur->unlinkFromService($id_unite, $id_service);
+                    
+                    if (!$unlinkResult['success']) {
+                        return $unlinkResult;
+                    }
+                    
+                    // ✅ Retourner le résultat avec le nombre de tarifs supprimés
+                    $totalTarifsSupprimes = $nbTarifsStandardSupprimes + $nbTarifsSpeciauxSupprimes;
+                    $message = 'Dissociation effectuée avec succès';
+                    
+                    if ($totalTarifsSupprimes > 0) {
+                        $message .= " ($nbTarifsStandardSupprimes tarif(s) standard(s) et $nbTarifsSpeciauxSupprimes tarif(s) spéciaux supprimés)";
+                    }
+                    
+                    return [
+                        'success' => true,
+                        'message' => $message,
+                        'tarifsStandardSupprimes' => $nbTarifsStandardSupprimes,
+                        'tarifsSpeciauxSupprimes' => $nbTarifsSpeciauxSupprimes,
+                        'totalTarifsSupprimes' => $totalTarifsSupprimes
+                    ];
+                    
                 } catch (Exception $e) {
                     return ['success' => false, 'message' => 'Erreur lors de la dissociation: ' . $e->getMessage()];
                 }
@@ -328,6 +388,172 @@ class ServiceTarif {
 
         }
     }
+
+    /**
+     * ===============================
+     * DONNÉES INITIALES UNIFIÉES
+     * ===============================
+     * Ces méthodes permettent de charger toutes les données
+     * de tarification en une seule requête API
+     */
+
+    /**
+     * Récupère toutes les données de tarification en une seule requête
+     * Services enrichis avec leurs unités liées et l'unité par défaut
+     * @param bool $actifsUniquement - Ne retourner que les services actifs
+     * @return array
+     */
+    public function getDonneesInitiales($actifsUniquement = false) {
+        try {
+            return [
+                'success' => true,
+                'services' => $this->getServicesAvecUnites($actifsUniquement),
+                'unites' => $this->getUnites()['unites'] ?? [],
+                'types_tarifs' => $this->getTypesTarifs()['typesTarifs'] ?? [],
+                'timestamp' => date('c')
+            ];
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des données initiales: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Récupère les services avec leurs unités liées et l'unité par défaut
+     * Utilise les contrôleurs existants (pas de SQL direct)
+     * @param bool $actifsUniquement
+     * @return array Services enrichis
+     */
+    public function getServicesAvecUnites($actifsUniquement = false) {
+        if (!$this->useNewServiceController || !$this->useNewUniteController) {
+            return []; // Contrôleurs non disponibles
+        }
+        
+        try {
+            // 1. Récupérer les services via ServiceControleur
+            $services = $this->serviceControleur->getAll($actifsUniquement);
+            
+            // 2. Récupérer toutes les relations services-unités détaillées via UniteControleur
+            $relations = $this->uniteControleur->getServicesUnitesDetaillees();
+            
+            // 3. Organiser les relations par service
+            $relationsParService = [];
+            foreach ($relations as $rel) {
+                $idService = $rel['id_service'];
+                if (!isset($relationsParService[$idService])) {
+                    $relationsParService[$idService] = [];
+                }
+                $relationsParService[$idService][] = $rel;
+            }
+            
+            // 4. Enrichir chaque service avec ses unités
+            $result = [];
+            foreach ($services as $service) {
+                $idService = $service['id_service'];
+                $unitesLiees = $relationsParService[$idService] ?? [];
+                
+                // Trouver l'unité par défaut
+                $uniteDefaut = null;
+                $idUniteDefaut = null;
+                foreach ($unitesLiees as $rel) {
+                    if ($rel['is_default']) {
+                        $uniteDefaut = [
+                            'id_unite' => (int)$rel['id_unite'],
+                            'code_unite' => $rel['code_unite'],
+                            'nom_unite' => $rel['nom_unite'],
+                            'description_unite' => $rel['description_unite']
+                        ];
+                        $idUniteDefaut = (int)$rel['id_unite'];
+                        break;
+                    }
+                }
+                
+                // Formater les unités liées (en snake_case pour le backend)
+                $unitesFormatees = array_map(function($rel) {
+                    return [
+                        'id_unite' => (int)$rel['id_unite'],
+                        'code_unite' => $rel['code_unite'],
+                        'nom_unite' => $rel['nom_unite'],
+                        'description_unite' => $rel['description_unite'],
+                        'is_default_pour_service' => (bool)$rel['is_default'],
+                        'actif' => isset($rel['actif']) ? (bool)$rel['actif'] : true
+                    ];
+                }, $unitesLiees);
+                
+                // Service enrichi (en snake_case pour le backend)
+                $result[] = [
+                    'id_service' => (int)$service['id_service'],
+                    'code_service' => $service['code_service'],
+                    'nom_service' => $service['nom_service'],
+                    'description_service' => $service['description_service'] ?? null,
+                    'actif' => (bool)($service['actif'] ?? true),
+                    'is_default' => (bool)($service['isDefault'] ?? $service['is_default'] ?? false),
+                    'unites_liees' => $unitesFormatees,
+                    'unite_defaut' => $uniteDefaut,
+                    'id_unite_defaut' => $idUniteDefaut
+                ];
+            }
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            error_log('ServiceTarif - getServicesAvecUnites - Erreur: ' . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Récupère les données optimisées pour un formulaire de facturation
+     * @return array
+     */
+    public function getDonneesFacturation() {
+        try {
+            $services = $this->getServicesAvecUnites(true); // Uniquement actifs
+            
+            // Trouver le service par défaut
+            $serviceDefaut = null;
+            foreach ($services as $service) {
+                if ($service['is_default']) {
+                    $serviceDefaut = $service;
+                    break;
+                }
+            }
+            
+            // Préparer les options pour les selects (en snake_case)
+            $servicesOptions = array_map(function($service) {
+                return [
+                    'value' => $service['id_service'],
+                    'label' => $service['nom_service'],
+                    'code' => $service['code_service'],
+                    'unites' => array_map(function($unite) {
+                        return [
+                            'value' => $unite['id_unite'],
+                            'label' => $unite['nom_unite'],
+                            'code' => $unite['code_unite'],
+                            'is_default' => $unite['is_default_pour_service']
+                        ];
+                    }, $service['unites_liees']),
+                    'id_unite_defaut' => $service['id_unite_defaut']
+                ];
+            }, $services);
+            
+            return [
+                'success' => true,
+                'services' => $services,
+                'service_defaut' => $serviceDefaut,
+                'services_options' => $servicesOptions,
+                'timestamp' => date('c')
+            ];
+            
+        } catch (Exception $e) {
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la récupération des données de facturation: ' . $e->getMessage()
+            ];
+        }
+    }
     
     /**
      * ===============================
@@ -354,14 +580,15 @@ class ServiceTarif {
     }
     
     public function createTypeTarif($data, $useTransaction = true) {
-        if ($this->useNewTarifController) {
+        if ($this->useNewUniteController) {
             return $this->executeWithTransaction(function() use ($data) {
                 try {
-                    $id = $this->tarifControleur->createTypeTarif($data);
+                    $result = $this->tarifControleur->createTypeTarif($data);
                     return [
                         'success' => true,
                         'message' => 'Type de tarif créé avec succès',
-                        'id' => $id
+                        'id_type_tarif' => $result['id_type_tarif'],
+                        'type_tarif' => $result['type_tarif']
                     ];
                 } catch (Exception $e) {
                     return [
@@ -471,7 +698,7 @@ class ServiceTarif {
                 try {
                     // Valider les données
                     if (!isset($data['id_service']) || !isset($data['id_unite']) || 
-                        !isset($data['type_tarif_id']) || !isset($data['prix'])) {
+                        !isset($data['id_type_tarif']) || !isset($data['prix_tarif_standard'])) {
                         return [
                             'success' => false,
                             'message' => 'Données de tarif incomplètes'
