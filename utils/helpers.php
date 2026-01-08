@@ -24,9 +24,23 @@
     
         if ($conn !== null) {
             try {
-                // Code existant...
-                // Ajouter un log après récupération du paramètre
-                // error_log("factures_path - outputDir récupéré des paramètres: " . ($paramResult['success'] ? $paramResult['parametre']['Valeur_parametre'] : 'échec'));
+                // Si c'est un objet ServiceParametre
+                if ($conn instanceof ServiceParametre) {
+                    $paramResult = $conn->getParametre('outputDir', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    }
+                }
+                // Si c'est une connexion PDO
+                else if ($conn instanceof PDO) {
+                    // Créer temporairement un ServiceParametre
+                    require_once APP_ROOT . '/ServiceParametre.php';
+                    $serviceParametre = new ServiceParametre($conn);
+                    $paramResult = $serviceParametre->getParametre('outputDir', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    }
+                }
             } catch (Exception $e) {
                 error_log('Erreur lors de la récupération du paramètre outputDir: ' . $e->getMessage());
             }

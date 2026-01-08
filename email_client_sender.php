@@ -377,12 +377,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_used'])) {
     <!-- ✅ CHARGEMENT DE EmailClientSender.js -->
     <script src="EmailClientSender.js"></script>
 
-    <script>
+        <?php
+        // 1. D'abord on calcule tout en PHP (en dehors du script)
+        $appUrlBack = rtrim(env('APP_URL_BACK', ''), '/');
+        if (empty($appUrlBack)) {
+            $appUrlBack = (isset($_SERVER['HTTPS']) ? "https" : "http") . "://$_SERVER[HTTP_HOST]";
+        }
+        $documentApiFullUrl = $appUrlBack . '/document-api.php';
+        ?>
+
+        <script>
         // ✅ DONNÉES TRANSMISES DEPUIS PHP VERS JAVASCRIPT
         window.emailData = <?= json_encode($emailData, JSON_HEX_QUOT | JSON_HEX_APOS) ?>;
         window.attachmentInfo = <?= json_encode($attachmentInfo, JSON_HEX_QUOT | JSON_HEX_APOS) ?>;
         window.requestId = <?= json_encode($requestId) ?>;
         window.detectedClient = <?= json_encode($detectedClient) ?>;
+        
+        // ✅ URL de l'API pour le téléchargement des documents (pièces jointes)
+        // Construction de l'URL absolue vers l'API de documents
+        window.documentApiUrl = <?php echo json_encode($documentApiFullUrl); ?>;
+        window.appBackOrigin = <?= json_encode($appUrlBack) ?>;
+        // On ajoute l'ID de session actuel
+        window.phpSessionId = <?= json_encode(session_id()) ?>;
+
 
         // ✅ CONFIGURATION DE L'INTERFACE MODERNE AVEC PRÉFÉRENCES
         document.addEventListener('DOMContentLoaded', function() {
@@ -390,6 +407,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['mark_used'])) {
             console.log('📧 Données email:', window.emailData);
             console.log('📎 Pièces jointes:', window.attachmentInfo);
             console.log('🎯 Client détecté:', window.detectedClient);
+            console.log('🎯 documentApiUrl:', window.documentApiUrl);
             
             const createButton = document.getElementById('createEmlButton');
             const statusMessage = document.getElementById('statusMessage');

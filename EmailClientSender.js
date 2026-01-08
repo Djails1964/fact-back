@@ -255,12 +255,24 @@ class EmailClientSender {
                 };
             }
         }
+
+        // 2. Force Thunderbird par défaut sur Windows si aucune préférence n'est définie
+        if (this.detectOS() === 'windows') {
+            console.log('🎯 Utilisation du client de messagerie par défaut pour windows : thunderbird');
+            return {
+                primary: 'thunderbird',
+                secondary: this.getSecondaryClient(primary),
+                os: this.detectOS(),
+                source: 'application-default',
+                confidence: 'medium'
+            };
+        }
         
-        // 2. Sinon, utiliser la détection automatique améliorée
+        // 3. Sinon, utiliser la détection automatique améliorée
         const autoDetected = this.detectEmailClientAdvanced();
         autoDetected.source = 'auto-detection';
         
-        // 3. Si la confiance est faible, proposer à l'utilisateur de choisir
+        // 4. Si la confiance est faible, proposer à l'utilisateur de choisir
         if (autoDetected.confidence === 'low' || autoDetected.confidence === 'very-low') {
             setTimeout(() => {
                 this.preference.showClientSelector(autoDetected, (selectedClient) => {
@@ -972,15 +984,23 @@ class EmailClientSender {
             try {
                 console.log(`Téléchargement de ${attachment.name} depuis le serveur...`);
                 
-                // Construire l'URL de téléchargement
-                // Utiliser le chemin relatif depuis la racine web
+                // ✅ Utiliser window.documentApiUrl injecté par EmailModalHandler
                 const fileName = attachment.path.split(/[\\\/]/).pop(); // Extraire juste le nom de fichier
-                const downloadUrl = `storage/factures/${fileName}`;
+                
+                if (!window.documentApiUrl) {
+                    throw new Error('URL de l\'API document non disponible (window.documentApiUrl)');
+                }
+                
+                const sessionIdParam = window.phpSessionId ? `&PHPSESSID=${window.phpSessionId}` : '';
+                const downloadUrl = `${window.documentApiUrl}?facture=${encodeURIComponent(fileName)}${sessionIdParam}`;
                 
                 console.log(`URL de téléchargement: ${downloadUrl}`);
                 
-                // Télécharger le fichier
-                const response = await fetch(downloadUrl);
+                // Télécharger le fichier avec credentials pour la session
+                const response = await fetch(downloadUrl, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -1003,6 +1023,7 @@ class EmailClientSender {
         
         return downloadedFiles;
     }
+
 
     /**
      * Génère un lien mailto: pour ouvrir un client de messagerie avec l'email prérempli
@@ -1425,17 +1446,3 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('📋 Informations disponibles dans window.emailClientInfo');
     }
 });
-
-/**
- * Export pour utilisation en module (optionnel)
- */
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = EmailClientSender;
-}
-
-/**
- * Export ES6 (optionnel)
- */
-if (typeof exports !== 'undefined') {
-    exports.EmailClientSender = EmailClientSender;
-}
