@@ -63,7 +63,15 @@ ALTER TABLE `facture`
 SELECT 'Table facture mise a jour' AS status;
 
 -- ----------------------------------------------------------------------------
--- 1.3 Table parametres - Renommage des colonnes
+-- 1.3 Table lignesfacture - champs UNITE devient optionnel
+-- ----------------------------------------------------------------------------
+ALTER TABLE `lignesfacture` 
+	MODIFY COLUMN `unite` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL;
+
+SELECT 'Table lignesfacture mise a jour' AS status;
+
+-- ----------------------------------------------------------------------------
+-- 1.4 Table parametres - Renommage des colonnes
 -- ----------------------------------------------------------------------------
 
 ALTER TABLE `parametres` 
@@ -77,7 +85,7 @@ ALTER TABLE `parametres`
 SELECT 'Table parametres mise a jour' AS status;
 
 -- ----------------------------------------------------------------------------
--- 1.4 Creation table paiement
+-- 1.5 Creation table paiement
 -- ----------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS `paiement` (

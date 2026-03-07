@@ -180,14 +180,12 @@ try {
                 break;
             }
 
-            
-           
             // Facture spécifique
-            if (isset($_GET['id'])) {
-                if (is_dev_mode()) {
-                    error_log("facture-api - GET facture ID: " . $_GET['id'] . " (user: $userId)");
+            if (isset($_GET['id_facture'])) {
+                 if (is_dev_mode()) {
+                    error_log("facture-api - GET facture ID: " . $_GET['id_facture'] . " (user: $userId)");
                 }
-                $resultat = $serviceFacture->getFactureComplete($_GET['id']);
+                $resultat = $serviceFacture->getFactureComplete($_GET['id_facture']);
                 echo json_encode($resultat);
                 break;
             }
@@ -208,6 +206,26 @@ try {
                     error_log("facture-api - GET URL facture ID: " . $_GET['id'] . " (user: $userId)");
                 }
                 $resultat = $serviceFacture->getFactureUrl($_GET['id']);
+                echo json_encode($resultat);
+                break;
+            }
+            
+            // ✅ NOUVEAU: Factures d'un client spécifique
+            // GET /api/facture-api.php?id_client=123
+            if (isset($_GET['id_client'])) {
+                $idClient = intval($_GET['id_client']);
+                
+                if (is_dev_mode()) {
+                    error_log("facture-api - GET factures du client ID: $idClient (user: $userId)");
+                }
+                
+                $resultat = $serviceFacture->getFacturesClient($idClient);
+                
+                if (is_dev_mode()) {
+                    error_log("facture-api - Factures du client #$idClient: " . 
+                              (isset($resultat['factures']) ? count($resultat['factures']) : 'N/A') . " factures");
+                }
+                
                 echo json_encode($resultat);
                 break;
             }
@@ -261,21 +279,21 @@ try {
             }
             
             // Imprimer un PDF de facture
-            if (isset($_GET['imprimer']) && isset($_GET['id'])) {
+            if (isset($_GET['imprimer']) && isset($_GET['id_facture'])) {
                 $options = isset($data['options']) ? $data['options'] : [];
                 
                 if (is_dev_mode()) {
-                    error_log("facture-api - POST impression facture ID: " . $_GET['id'] . " avec options: " . json_encode($options) . " (user: $userId)");
+                    error_log("facture-api - POST impression facture ID: " . $_GET['id_facture'] . " avec options: " . json_encode($options) . " (user: $userId)");
                 }
                 
-                $resultat = $serviceFacture->imprimerFacture($_GET['id'], $options);
+                $resultat = $serviceFacture->imprimerFacture($_GET['id_facture'], $options);
                 echo json_encode($resultat);
                 ob_end_flush();
                 exit;
             }
 
             // Changer l'état d'une facture (avec protection contre l'état "Retard")
-            if (isset($_GET['changerEtat']) && isset($_GET['id'])) {
+            if (isset($_GET['changerEtat']) && isset($_GET['id_facture'])) {
                 if (!isset($data['nouvelEtat'])) {
                     throw new Exception('Nouvel état non spécifié');
                 }
@@ -294,27 +312,27 @@ try {
                 }
                 
                 if (is_dev_mode()) {
-                    error_log("facture-api - POST changement état facture ID: " . $_GET['id'] . " vers: " . $data['nouvelEtat'] . " (user: $userId)");
+                    error_log("facture-api - POST changement état facture ID: " . $_GET['id_facture'] . " vers: " . $data['nouvelEtat'] . " (user: $userId)");
                 }
                 
-                $resultat = $serviceFacture->changerEtatFacture($_GET['id'], $data['nouvelEtat']);
+                $resultat = $serviceFacture->changerEtatFacture($_GET['id_facture'], $data['nouvelEtat']);
                 echo json_encode($resultat);
                 break;
             }
 
             // Envoyer une facture par email
-            if (isset($_GET['envoyer']) && isset($_GET['id'])) {
+            if (isset($_GET['envoyer']) && isset($_GET['id_facture'])) {
                 if (is_dev_mode()) {
-                    error_log("facture-api - POST envoi facture par email - ID: " . $_GET['id'] . " (user: $userId)");
+                    error_log("facture-api - POST envoi facture par email - ID: " . $_GET['id_facture'] . " (user: $userId)");
                     error_log("facture-api - Données email: " . json_encode($data));
                     
                     // Log spécifique pour le bypass
                     if (isset($data['bypassCapture']) && $data['bypassCapture']) {
-                        error_log("🚨 BYPASS CAPTURE activé pour la facture ID: " . $_GET['id'] . " par user: $userId");
+                        error_log("🚨 BYPASS CAPTURE activé pour la facture ID: " . $_GET['id_facture'] . " par user: $userId");
                     }
                 }
                 
-                $resultat = $serviceFacture->envoyerFactureParEmail($_GET['id'], $data);
+                $resultat = $serviceFacture->envoyerFactureParEmail($_GET['id_facture'], $data);
                 echo json_encode($resultat);
                 break;
             }
@@ -354,17 +372,17 @@ try {
             }
             
             // L'ID peut être fourni dans l'URL ou dans le corps de la requête
-            $id = $_GET['id'] ?? ($data['id'] ?? null);
+            $id_facture = $_GET['id_facture'] ?? ($data['id_facture'] ?? null);
             
-            if (!$id) {
+            if (!$id_facture) {
                 throw new Exception('ID facture manquant');
             }
             
             if (is_dev_mode()) {
-                error_log("facture-api - PUT modification facture ID: $id (user: $userId)");
+                error_log("facture-api - PUT modification facture ID: $id_facture (user: $userId)");
             }
             
-            $resultat = $serviceFacture->modifierFacture($id, $data);
+            $resultat = $serviceFacture->modifierFacture($id_facture, $data);
             echo json_encode($resultat);
             break;
             
@@ -376,16 +394,16 @@ try {
             }
             
             // Supprimer une facture
-            if (!isset($_GET['id'])) {
+            if (!isset($_GET['id_facture'])) {
                 throw new Exception('ID facture manquant');
             }
 
 
             if (is_dev_mode()) {
-                error_log("facture-api - DELETE facture ID: " . $_GET['id'] . " (user: $userId)");
+                error_log("facture-api - DELETE facture ID: " . $_GET['id_facture'] . " (user: $userId)");
             }
             
-            $resultat = $serviceFacture->supprimerFacture($_GET['id']);
+            $resultat = $serviceFacture->supprimerFacture($_GET['id_facture']);
             echo json_encode($resultat);
             break;
             

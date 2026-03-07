@@ -29,7 +29,9 @@ class ServiceActivityLogs {
             $offset = max(0, (int)$offset);
             
             // Validation et nettoyage des filtres
+            error_log("🔍 ServiceActivityLogs::getLogs - Validation des filtres: " . json_encode($filters));
             $cleanFilters = $this->validateAndCleanFilters($filters);
+            error_log("🔍 ServiceActivityLogs::getLogs - Filtres validés: " . json_encode($cleanFilters));
             
             // Récupération des données via le contrôleur
             $logs = ActivityLogsControleur::getLogs($this->conn, $cleanFilters, $limit, $offset);
@@ -435,9 +437,16 @@ class ServiceActivityLogs {
             unset($cleanFilters['severity']);
         }
         
-        // Validation de l'action_type
-        if (isset($cleanFilters['action_type']) && !ActivityLogsConstants::isValidActionType($cleanFilters['action_type'])) {
-            unset($cleanFilters['action_type']);
+        // Validation de l'action_type — supporte une valeur unique ou une liste CSV
+        if (isset($cleanFilters['action_type'])) {
+            $actionTypes = array_map('trim', explode(',', $cleanFilters['action_type']));
+            $validTypes  = array_filter($actionTypes, [ActivityLogsConstants::class, 'isValidActionType']);
+            if (empty($validTypes)) {
+                unset($cleanFilters['action_type']);
+            } else {
+                // Remettre sous forme CSV (propre)
+                $cleanFilters['action_type'] = implode(',', $validTypes);
+            }
         }
         
         // Validation de l'entity_type

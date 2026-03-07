@@ -17,6 +17,8 @@ class ServiceClient {
     public function listerClients() {
         try {
             $clients = ClientControleur::listerClients($this->conn);
+            error_log ("ServiceClient - Clients récupérés: " . count($clients));
+            error_log ("ServiceClient - Détails clients: " . print_r($clients, true));
             
             return [
                 'success' => true,
@@ -33,12 +35,12 @@ class ServiceClient {
     
     /**
      * Récupère un client par son ID
-     * @param int $id ID du client
+     * @param int $id_client ID du client
      * @return array Informations du client
      */
-    public function getClientParId($id) {
+    public function getClientParId($id_client) {
         try {
-            $client = ClientControleur::getClientParId($this->conn, $id);
+            $client = ClientControleur::getClientParId($this->conn, $id_client);
             return [
                 'success' => true,
                 'client' => $client
@@ -54,17 +56,17 @@ class ServiceClient {
     
     /**
      * Vérifie si un client a des factures associées
-     * @param int $id ID du client
+     * @param int $id_client ID du client
      * @return array Résultat de l'opération avec information booléenne
      */
-    public function aUneFacture($id) {
+    public function aUneFacture($id_client) {
         try {
-            $aUneFacture = ClientControleur::aUneFacture($this->conn, $id);
+            $aUneFacture = ClientControleur::aUneFacture($this->conn, $id_client);
             
             // Si le client a des factures, compter combien
             $count = 0;
             if ($aUneFacture) {
-                $factures = ClientControleur::getFacturesClient($this->conn, $id);
+                $factures = ClientControleur::getFacturesClient($this->conn, $id_client);
                 $count = count($factures);
             }
             
@@ -101,7 +103,7 @@ class ServiceClient {
             return [
                 'success' => true,
                 'message' => $resultat['message'],
-                'id' => $resultat['id']
+                'id_client' => $resultat['id_client']
             ];
             
         } catch (Exception $e) {
@@ -119,16 +121,16 @@ class ServiceClient {
     
     /**
      * Modifie un client existant
-     * @param int $id ID du client
+     * @param int $id_client ID du client
      * @param object $data Les nouvelles données du client
      * @return array Résultat de l'opération
      */
-    public function modifierClient($id, $data) {
+    public function modifierClient($id_client, $data) {
         try {
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            $resultat = ClientControleur::modifierClient($this->conn, $id, $data);
+            $resultat = ClientControleur::modifierClient($this->conn, $id_client, $data);
             
             // Valider la transaction
             $this->conn->commit();
@@ -136,7 +138,7 @@ class ServiceClient {
             return [
                 'success' => true,
                 'message' => $resultat['message'],
-                'id' => $resultat['id']
+                'id_client' => $resultat['id_client']
             ];
             
         } catch (Exception $e) {
@@ -154,15 +156,15 @@ class ServiceClient {
     
     /**
      * Supprime un client
-     * @param int $id ID du client
+     * @param int $id_client ID du client
      * @return array Résultat de l'opération
      */
-    public function supprimerClient($id) {
+    public function supprimerClient($id_client) {
         try {
             // Démarrer une transaction
             $this->conn->beginTransaction();
             
-            $resultat = ClientControleur::supprimerClient($this->conn, $id);
+            $resultat = ClientControleur::supprimerClient($this->conn, $id_client);
             
             // Valider la transaction
             $this->conn->commit();
@@ -170,7 +172,7 @@ class ServiceClient {
             return [
                 'success' => true,
                 'message' => $resultat['message'],
-                'id' => $resultat['id']
+                'id_client' => $resultat['id_client']
             ];
             
         } catch (Exception $e) {

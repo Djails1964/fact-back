@@ -261,7 +261,7 @@ class EmailClientSender {
             console.log('🎯 Utilisation du client de messagerie par défaut pour windows : thunderbird');
             return {
                 primary: 'thunderbird',
-                secondary: this.getSecondaryClient(primary),
+                secondary: this.getSecondaryClient('thunderbird'),
                 os: this.detectOS(),
                 source: 'application-default',
                 confidence: 'medium'

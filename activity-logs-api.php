@@ -12,6 +12,18 @@ init_api_response();
 require_once 'database.php';
 require_once realpath(__DIR__ . '/services/ServiceActivityLogs.php');
 
+// Debug session en mode développement (comme auth-api.php)
+if (is_dev_mode()) {
+    error_log("activity-logs-api.php - Méthode: " . $_SERVER['REQUEST_METHOD']);
+    error_log("activity-logs-api.php - URL complète: " . $_SERVER['REQUEST_URI']);
+    error_log("activity-logs-api.php - Origin: " . ($_SERVER['HTTP_ORIGIN'] ?? 'Non défini'));
+    error_log("activity-logs-api.php - Paramètres GET: " . json_encode($_GET));
+    error_log("activity-logs-api.php - Session ID: " . session_id());
+    error_log("activity-logs-api.php - Session status: " . session_status());
+    error_log("activity-logs-api.php - Session content: " . json_encode($_SESSION));
+    error_log("🔍 activity-logs-api.php - Session initialisée par bootstrap.php");
+}
+
 try {
     // Vérifier la session utilisateur
     if (session_status() === PHP_SESSION_NONE) {
@@ -38,6 +50,7 @@ try {
     
     if ($method === 'GET') {
         $action = $_GET['action'] ?? 'get_logs';
+        error_log("🔍 activity-logs-api.php - Action GET: {$action} - User: {$userName} (ID: {$userId})");
         
         switch ($action) {
             case 'get_logs':
@@ -49,8 +62,10 @@ try {
                 // Construire les filtres avec validation
                 $filters = [];
                 
+                error_log("🔍 activity-logs-api.php - Filtres GET: " . json_encode($_GET));
                 if (!empty($_GET['action_type'])) {
                     $filters['action_type'] = filter_var($_GET['action_type'], FILTER_SANITIZE_FULL_SPECIAL_CHARS);
+                    error_log("🔍 activity-logs-api.php - Filtre action_type: " . $filters['action_type']);
                 }
                 
                 if (!empty($_GET['severity']) && in_array($_GET['severity'], ['info', 'warning', 'error', 'critical'])) {
@@ -82,6 +97,7 @@ try {
                 }
                 
                 // ✅ ARCHITECTURE CORRECTE: Récupération via le service
+                error_log("🔍 activity-logs-api.php - Appel du service getLogs avec filtres: " . json_encode($filters) . ", limit: {$limit}, offset: {$offset}");
                 $result = $serviceActivityLogs->getLogs($filters, $limit, $offset);
                 echo json_encode($result);
                 break;

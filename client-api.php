@@ -153,23 +153,23 @@ try {
             // Client spécifique
             error_log("client-api - Traitement GET pour client");
             error_log("client-api - Paramètres GET: " . json_encode($_GET));
-            error_log("client-api - GET ID: " . ($_GET['id'] ?? 'Aucun ID fourni'));
+            error_log("client-api - GET ID: " . ($_GET['id_client'] ?? 'Aucun ID fourni'));
             error_log("client-api - GET checkFactures: " . ($_GET['checkFactures'] ?? 'Aucun paramètre checkFactures'));
 
-            if (isset($_GET['id'])) {
+            if (isset($_GET['id_client'])) {
                 if (isset($_GET['checkFactures']) && $_GET['checkFactures'] === 'true') {
                     // Vérifier si le client a des factures
                     if (is_dev_mode()) {
-                        error_log("client-api - Vérification factures pour client: " . $_GET['id'] . " (user: $userId)");
+                        error_log("client-api - Vérification factures pour client: " . $_GET['id_client'] . " (user: $userId)");
                     }
-                    $resultat = $serviceClient->aUneFacture($_GET['id']);
+                    $resultat = $serviceClient->aUneFacture($_GET['id_client']);
                     error_log("client-api - Résultat vérification factures: " . json_encode($resultat));
                     echo json_encode($resultat);
                 } else {
                     if (is_dev_mode()) {
-                        error_log("client-api - Récupération client ID: " . $_GET['id'] . " (user: $userId)");
+                        error_log("client-api - Récupération client ID: " . $_GET['id_client'] . " (user: $userId)");
                     }
-                    $resultat = $serviceClient->getClientParId($_GET['id']);
+                    $resultat = $serviceClient->getClientParId($_GET['id_client']);
                     echo json_encode($resultat);
                 }
                 break;
@@ -249,17 +249,17 @@ try {
             }
             
             // L'ID peut être fourni dans l'URL ou dans le corps de la requête
-            $id = $_GET['id'] ?? ($data['id'] ?? null);
+            $id_client = $_GET['id_client'] ?? ($data['id_client'] ?? null);
             
-            if (!$id) {
+            if (!$id_client) {
                 throw new Exception('ID client manquant');
             }
             
             if (is_dev_mode()) {
-                error_log("client-api - Modification client ID: $id par user: $userId (role: $userRole)");
+                error_log("client-api - Modification client ID: $id_client par user: $userId (role: $userRole)");
             }
             
-            $resultat = $serviceClient->modifierClient($id, $data);
+            $resultat = $serviceClient->modifierClient($id_client, $data);
             echo json_encode($resultat);
             break;
             
@@ -271,12 +271,12 @@ try {
             }
             
             // Supprimer un client
-            if (!isset($_GET['id'])) {
+            if (!isset($_GET['id_client'])) {
                 throw new Exception('ID client manquant');
             }
             
             if (is_dev_mode()) {
-                error_log("client-api - Tentative suppression client ID: " . $_GET['id'] . " par user: $userId (role: $userRole)");
+                error_log("client-api - Tentative suppression client ID: " . $_GET['id_client'] . " par user: $userId (role: $userRole)");
             }
             
             // Vérification de sécurité - empêcher la suppression si le client a des factures
@@ -290,10 +290,10 @@ try {
                     error_log("client-api - Suppression forcée autorisée pour admin: $userId");
                 }
                 
-                $resultat = $serviceClient->supprimerClient($_GET['id'], true);
+                $resultat = $serviceClient->supprimerClient($_GET['id_client'], true);
             } else {
                 // Vérifier d'abord s'il y a des factures
-                $checkFactures = $serviceClient->aUneFacture($_GET['id']);
+                $checkFactures = $serviceClient->aUneFacture($_GET['id_client']);
 
                 if (!$checkFactures['success']) {
                     throw new Exception($checkFactures['message']);
@@ -318,7 +318,7 @@ try {
                     error_log("client-api - Suppression autorisée - Client sans factures");
                 }
                 
-                $resultat = $serviceClient->supprimerClient($_GET['id']);
+                $resultat = $serviceClient->supprimerClient($_GET['id_client']);
             }
             
             echo json_encode($resultat);

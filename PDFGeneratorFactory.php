@@ -24,6 +24,10 @@ class PDFGeneratorFactory {
             case 'fpdi':
                 require_once 'FPDIFactureGenerator.php';
                 return new FPDIFactureGenerator();
+
+            case 'fpdi_loyer':
+                require_once 'FPDILoyerConfirmationGenerator.php';
+                return new FPDILoyerConfirmationGenerator();
                 
             default:
                 throw new Exception("Type de générateur PDF non supporté: {$type}");

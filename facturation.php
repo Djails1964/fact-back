@@ -65,7 +65,7 @@ $assetBasePath = $isDevelopment ? $reactURL : 'build';
     <meta http-equiv="Expires" content="0">
     
     <!-- Favicon -->
-    <link rel="shortcut icon" href="<?= $assetBasePath ?>/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="<?= $assetBasePath ?>/ico_facturation_lagrange_512.png" type="image/x-icon">
     
     <!-- Styles initiaux pour éviter le FOUC (Flash Of Unstyled Content) -->
     <style>

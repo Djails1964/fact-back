@@ -49,11 +49,11 @@ class FactureControleur {
      * Récupère une facture et ses lignes par son ID
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture à récupérer
+     * @param int $id_facture ID de la facture à récupérer
      * @return array Données de la facture et ses lignes
      * @throws Exception Si la facture n'existe pas ou autre erreur
      */
-    public static function getFactureParId($conn, $id) {
+    public static function getFactureParId($conn, $id_facture) {
         try {
             // Récupérer les informations de la facture
             $sql = "SELECT f.*, c.nom, c.prenom, c.titre, c.rue, c.numero, c.code_postal, c.localite, c.telephone, c.email, c.estTherapeute
@@ -61,7 +61,7 @@ class FactureControleur {
                     JOIN client c ON f.id_client = c.id 
                     WHERE f.id_facture = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$id]);
+            $stmt->execute([$id_facture]);
             $facture = $stmt->fetch(PDO::FETCH_ASSOC);
             
             if (!$facture) {
@@ -85,7 +85,7 @@ class FactureControleur {
             WHERE id_facture = ? 
             ORDER BY no_ordre ASC";
             $stmtLignes = $conn->prepare($sqlLignes);
-            $stmtLignes->execute([$id]);
+            $stmtLignes->execute([$id_facture]);
             $lignes = $stmtLignes->fetchAll(PDO::FETCH_ASSOC);
             
             // Combiner les résultats
@@ -98,6 +98,53 @@ class FactureControleur {
         }
     }
 
+    /**
+     * Récupère toutes les factures d'un client spécifique
+     * ✅ SQL simplifié : toutes les colonnes de la table facture + infos client de base
+     * ❌ SANS calculs, SANS GROUP BY, SANS jointure paiement
+     * 
+     * @param PDO $conn La connexion à la base de données
+     * @param int $id_client ID du client
+     * @param bool $inclureAnnulees Inclure les factures annulées (false par défaut)
+     * @return array Liste des factures du client
+     * @throws Exception En cas d'erreur lors de la récupération
+     */
+    public static function getFacturesClient($conn, $id_client, $inclureAnnulees = false) {
+        try {
+            error_log("📥 FactureControleur::getFacturesClient - Client #$id_client" . 
+                      ($inclureAnnulees ? " (avec annulées)" : " (sans annulées)"));
+            
+            // SQL simplifié : toutes les colonnes de facture + infos client de base
+            // SANS calculs, SANS GROUP BY, SANS jointure avec paiement
+            $sql = "SELECT 
+                    f.*,
+                    c.id as id_client,
+                    c.nom,
+                    c.prenom
+                FROM facture f
+                INNER JOIN client c ON f.id_client = c.id
+                WHERE f.id_client = ?";
+            
+            // Exclure les factures annulées par défaut
+            if (!$inclureAnnulees) {
+                $sql .= " AND f.etat != 'Annulée'";
+            }
+            
+            $stmt = $conn->prepare($sql);
+            $stmt->execute([$id_client]);
+            $factures = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            error_log("✅ FactureControleur::getFacturesClient - " . count($factures) . " factures trouvées");
+            
+            // ✅ Retourner les données en snake_case (seront converties en camelCase par api.js)
+            return $factures;
+            
+        } catch (PDOException $e) {
+            error_log("❌ FactureControleur::getFacturesClient - Erreur: " . $e->getMessage());
+            throw new Exception('Erreur lors de la récupération des factures du client');
+        }
+    }
+    
     /**
      * Ajoute une nouvelle facture et ses lignes
      * 
@@ -197,12 +244,12 @@ class FactureControleur {
      * Modifie une facture existante
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture à modifier
+     * @param int $id_facture ID de la facture à modifier
      * @param array $data Les données de la facture
      * @return array Résultat de l'opération
      * @throws Exception En cas de données invalides ou d'erreur
      */
-    public static function modifierFacture($conn, $id, $data) {
+    public static function modifierFacture($conn, $id_facture, $data) {
         // ✅ DEBUGGING amélioré - formatage sécurisé
         error_log("=== DEBUGGING FACTURE CONTROLEUR ===");
         error_log("Raw data type: " . gettype($data));
@@ -220,7 +267,7 @@ class FactureControleur {
         } elseif (isset($data['id_client'])) {
             $id_client = is_array($data['id_client']) ? $data['id_client']['id'] ?? $data['id_client'][0] : $data['id_client'];
         } elseif (isset($data['client'])) {
-            $id_client = is_array($data['client']) ? $data['client']['id'] ?? $data['client']['idClient'] : $data['client'];
+            $id_client = is_array($data['client']) ? $data['client']['id'] ?? $data['client']['id_client'] : $data['client'];
         }
         
         error_log("Client ID résolu: " . var_export($id_client, true));
@@ -250,7 +297,7 @@ class FactureControleur {
             // Vérifier si la facture existe
             $checkSql = "SELECT id_facture, numero_facture as oldNumero FROM facture WHERE id_facture = ?";
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$id]);
+            $checkStmt->execute([$id_facture]);
             
             if ($checkStmt->rowCount() === 0) {
                 throw new Exception('Facture non trouvée');
@@ -280,12 +327,12 @@ class FactureControleur {
                 $montantBrut,
                 $id_client, // ✅ CORRECTION: Utilisation de la variable résolue
                 $ristourne,
-                $id
+                $id_facture
             ]);
             
             // Supprimer les anciennes lignes de facture
             $stmtDelete = $conn->prepare("DELETE FROM lignesfacture WHERE id_facture = ?");
-            $stmtDelete->execute([$id]);
+            $stmtDelete->execute([$id_facture]);
             
             // Insérer les nouvelles lignes de facture
             $stmtLignes = $conn->prepare("INSERT INTO lignesfacture 
@@ -312,7 +359,7 @@ class FactureControleur {
                 $descriptionDates = isset($ligne['description_dates']) ? $ligne['description_dates'] : null;
                 
                 $stmtLignes->execute([
-                    $id,
+                    $id_facture,
                     (string)$ligne['description'], // ✅ Cast explicite en string
                     // (string)$ligne['unite'],       // ✅ Cast explicite en string
                     null, // unité gérée séparément
@@ -335,7 +382,7 @@ class FactureControleur {
             return [
                 'success' => true,
                 'message' => 'Facture modifiée avec succès',
-                'factureId' => $id
+                'id_facture' => $id_facture,
             ];
             
         } catch(PDOException $e) {
@@ -352,16 +399,16 @@ class FactureControleur {
      * Met à jour les informations d'édition d'une facture
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture
+     * @param int $id_facture ID de la facture
      * @param string $dateEdition Date d'édition
      * @param string $nomFichier Nom du fichier généré
      * @return array Résultat de l'opération
      */
-    public static function mettreAJourEditionFacture($conn, $id, $dateEdition, $nomFichier) {
+    public static function mettreAJourEditionFacture($conn, $id_facture, $dateEdition, $nomFichier) {
         try {
             $sql = "UPDATE facture SET date_edition = ?, factfilename = ? WHERE id_facture = ?";
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$dateEdition, $nomFichier, $id]);
+            $stmt->execute([$dateEdition, $nomFichier, $id_facture]);
             
             return [
                 'success' => true,
@@ -377,16 +424,16 @@ class FactureControleur {
      * Supprime une facture et ses lignes
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture à supprimer
+     * @param int $id_facture ID de la facture à supprimer
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
      */
-    public static function supprimerFacture($conn, $id) {
+    public static function supprimerFacture($conn, $id_facture) {
         try {
             // Vérifier si la facture existe
             $checkSql = "SELECT id_facture FROM facture WHERE id_facture = ?";
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$id]);
+            $checkStmt->execute([$id_facture]);
             
             if ($checkStmt->rowCount() === 0) {
                 throw new Exception('Facture non trouvée');
@@ -395,17 +442,17 @@ class FactureControleur {
             // Supprimer d'abord les lignes de facture (contrainte de clé étrangère)
             $sqlLignes = "DELETE FROM lignesfacture WHERE id_facture = ?";
             $stmtLignes = $conn->prepare($sqlLignes);
-            $stmtLignes->execute([$id]);
+            $stmtLignes->execute([$id_facture]);
             
             // Puis supprimer la facture
             $sqlFacture = "DELETE FROM facture WHERE id_facture = ?";
             $stmtFacture = $conn->prepare($sqlFacture);
-            $stmtFacture->execute([$id]);
+            $stmtFacture->execute([$id_facture]);
             
             return [
                 'success' => true,
                 'message' => 'Facture supprimée avec succès',
-                'factureId' => $id
+                'id_facture' => $id_facture
             ];
             
         } catch(PDOException $e) {
@@ -422,23 +469,23 @@ class FactureControleur {
      * Change l'état d'une facture (avec protection contre l'état "Retard")
      * 
      * @param PDO $conn La connexion à la base de données
-     * @param int $id ID de la facture à modifier
+     * @param int $id_facture ID de la facture à modifier
      * @param string $nouvelEtat Le nouvel état de la facture
      * @return array Résultat de l'opération
      * @throws Exception En cas d'erreur
      */
-    public static function changerEtatFacture($conn, $id, $nouvelEtat) {
+    public static function changerEtatFacture($conn, $id_facture, $nouvelEtat) {
         try {
             // ✅ PROTECTION: Empêcher la persistance de l'état "Retard"
             if ($nouvelEtat === 'Retard') {
-                error_log("⚠️ Tentative de persistance de l'état 'Retard' bloquée pour la facture ID: $id");
+                error_log("⚠️ Tentative de persistance de l'état 'Retard' bloquée pour la facture ID: $id_facture");
                 throw new Exception('L\'état "Retard" ne peut pas être persisté. Il est calculé automatiquement côté client.');
             }
             
             // Vérifier si la facture existe
             $checkSql = "SELECT id_facture FROM facture WHERE id_facture = ?";
             $checkStmt = $conn->prepare($checkSql);
-            $checkStmt->execute([$id]);
+            $checkStmt->execute([$id_facture]);
             
             if ($checkStmt->rowCount() === 0) {
                 throw new Exception('Facture non trouvée');
@@ -453,14 +500,14 @@ class FactureControleur {
                     // Pour l'état "Annulée", on met aussi à jour la date d'annulation
                     $sql = "UPDATE facture SET etat = ?, date_annulation = ? WHERE id_facture = ?";
                     $stmt = $conn->prepare($sql);
-                    $stmt->execute([$nouvelEtat, $dateCourante, $id]);
+                    $stmt->execute([$nouvelEtat, $dateCourante, $id_facture]);
                     break;
                     
                 case 'Envoyée':
                     // Pour l'état "Envoyée", on met aussi à jour la date d'envoi
                     $sql = "UPDATE facture SET etat = ?, date_envoi = ? WHERE id_facture = ?";
                     $stmt = $conn->prepare($sql);
-                    $stmt->execute([$nouvelEtat, $dateCourante, $id]);
+                    $stmt->execute([$nouvelEtat, $dateCourante, $id_facture]);
                     break;
                     
                 case 'Payée':
@@ -471,14 +518,14 @@ class FactureControleur {
                     // Pour les autres états, simplement mettre à jour le champ d'état
                     $sql = "UPDATE facture SET etat = ? WHERE id_facture = ?";
                     $stmt = $conn->prepare($sql);
-                    $stmt->execute([$nouvelEtat, $id]);
+                    $stmt->execute([$nouvelEtat, $id_facture]);
                     break;
             }
             
             return [
                 'success' => true,
                 'message' => 'État de la facture modifié avec succès',
-                'factureId' => $id,
+                'id_facture' => $id_facture,
                 'nouvelEtat' => $nouvelEtat
             ];
             

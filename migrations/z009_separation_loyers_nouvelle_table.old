@@ -1,0 +1,383 @@
+-- ============================================================================
+-- Migration 009: Séparation des loyers de la table factures
+-- ============================================================================
+-- Date: 2026-02-20
+-- Description: Création d'une table loyers dédiée et nettoyage de l'intégration
+--              des loyers dans la table factures
+-- ============================================================================
+
+-- ============================================================================
+-- ÉTAPE 1: Sauvegarde des loyers existants (si présents dans factures)
+-- ============================================================================
+
+CREATE TEMPORARY TABLE IF NOT EXISTS temp_loyers_backup AS
+SELECT 
+    id_facture,
+    numero_facture,
+    id_client,
+    date_facture,
+    periode_debut,
+    periode_fin,
+    duree_mois,
+    motif,
+    montant_total,
+    date_creation,
+    date_modification,
+    createur_id,
+    modificateur_id
+FROM factures
+WHERE type_facture = 'loyer';
+
+SELECT '=== ÉTAPE 1: Sauvegarde des loyers existants ===' AS '';
+SELECT CONCAT('✅ ', COUNT(*), ' loyer(s) sauvegardé(s)') AS resultat
+FROM temp_loyers_backup;
+
+-- ============================================================================
+-- ÉTAPE 2: Création de la nouvelle table loyers
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS loyers (
+    -- Identifiant
+    id_loyer INT AUTO_INCREMENT PRIMARY KEY,
+    
+    -- Numérotation séquentielle par client
+    numero_loyer VARCHAR(20) NOT NULL COMMENT 'Format: LOY-{id_client}-{seq}',
+    numero_sequence INT NOT NULL COMMENT 'Numéro séquentiel par client',
+    
+    -- Relation client
+    id_client INT NOT NULL,
+    
+    -- Période du loyer
+    date_creation_loyer DATE NOT NULL COMMENT 'Date de création du contrat de loyer',
+    periode_debut DATE NOT NULL COMMENT 'Date de début de la période de loyer',
+    periode_fin DATE NOT NULL COMMENT 'Date de fin de la période de loyer',
+    duree_mois INT NOT NULL DEFAULT 12 COMMENT 'Durée en mois',
+    
+    -- Motif et description
+    motif VARCHAR(255) NULL COMMENT 'Motif du loyer (ex: Loyer annuel, Sous-location...)',
+    description TEXT NULL COMMENT 'Description détaillée',
+    
+    -- Montants
+    montant_total DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT 'Montant total sur la période',
+    montant_mensuel_moyen DECIMAL(10,2) GENERATED ALWAYS AS (montant_total / duree_mois) STORED COMMENT 'Montant moyen par mois',
+    
+    -- État du loyer
+    statut ENUM('actif', 'termine', 'suspendu', 'annule') NOT NULL DEFAULT 'actif',
+    
+    -- Métadonnées
+    date_creation DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date_modification DATETIME NULL ON UPDATE CURRENT_TIMESTAMP,
+    createur_id INT NULL,
+    modificateur_id INT NULL,
+    
+    -- Index et contraintes
+    INDEX idx_loyer_client (id_client),
+    INDEX idx_loyer_periode (periode_debut, periode_fin),
+    INDEX idx_loyer_statut (statut),
+    INDEX idx_loyer_numero (numero_loyer),
+    UNIQUE KEY uk_loyer_client_sequence (id_client, numero_sequence),
+    
+    CONSTRAINT fk_loyer_client FOREIGN KEY (id_client) 
+        REFERENCES clients(id) 
+        ON DELETE RESTRICT 
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Table des loyers séparée de la facturation';
+
+SELECT '=== ÉTAPE 2: Création de la table loyers ===' AS '';
+SELECT '✅ Table loyers créée avec succès' AS resultat;
+
+-- ============================================================================
+-- ÉTAPE 3: Création de la table des détails mensuels
+-- ============================================================================
+
+CREATE TABLE IF NOT EXISTS loyer_details (
+    -- Identifiant
+    id_detail INT AUTO_INCREMENT PRIMARY KEY,
+    
+    -- Relation loyer
+    id_loyer INT NOT NULL,
+    
+    -- Mois
+    mois VARCHAR(20) NOT NULL COMMENT 'Format: Janvier 2025',
+    numero_mois INT NOT NULL COMMENT 'Numéro du mois (1-12)',
+    annee INT NOT NULL COMMENT 'Année',
+    
+    -- Montant pour ce mois
+    montant DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT 'Montant du loyer pour ce mois',
+    
+    -- Paiement
+    est_paye BOOLEAN NOT NULL DEFAULT FALSE,
+    date_paiement DATE NULL,
+    
+    -- Métadonnées
+    date_creation DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date_modification DATETIME NULL ON UPDATE CURRENT_TIMESTAMP,
+    
+    -- Index
+    INDEX idx_detail_loyer (id_loyer),
+    INDEX idx_detail_mois (numero_mois, annee),
+    INDEX idx_detail_paye (est_paye),
+    UNIQUE KEY uk_detail_loyer_mois (id_loyer, numero_mois, annee),
+    
+    CONSTRAINT fk_detail_loyer FOREIGN KEY (id_loyer) 
+        REFERENCES loyers(id_loyer) 
+        ON DELETE CASCADE 
+        ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Détails mensuels des loyers';
+
+SELECT '=== ÉTAPE 3: Création de la table loyer_details ===' AS '';
+SELECT '✅ Table loyer_details créée avec succès' AS resultat;
+
+-- ============================================================================
+-- ÉTAPE 4: Migration des données existantes (si présentes)
+-- ============================================================================
+
+-- Insérer les loyers sauvegardés dans la nouvelle table
+INSERT INTO loyers (
+    numero_loyer,
+    numero_sequence,
+    id_client,
+    date_creation_loyer,
+    periode_debut,
+    periode_fin,
+    duree_mois,
+    motif,
+    montant_total,
+    statut,
+    date_creation,
+    date_modification,
+    createur_id,
+    modificateur_id
+)
+SELECT 
+    numero_facture,                              -- Garder l'ancien numéro temporairement
+    1,                                           -- Première séquence (sera recalculée)
+    id_client,
+    date_facture,
+    periode_debut,
+    periode_fin,
+    duree_mois,
+    motif,
+    montant_total,
+    'actif',                                     -- Statut par défaut
+    date_creation,
+    date_modification,
+    createur_id,
+    modificateur_id
+FROM temp_loyers_backup;
+
+SELECT '=== ÉTAPE 4: Migration des données ===' AS '';
+SELECT CONCAT('✅ ', COUNT(*), ' loyer(s) migré(s)') AS resultat
+FROM loyers;
+
+-- ============================================================================
+-- ÉTAPE 5: Recalcul des numéros séquentiels par client
+-- ============================================================================
+
+-- Créer une table temporaire avec les nouveaux numéros
+CREATE TEMPORARY TABLE temp_nouveaux_numeros AS
+SELECT 
+    id_loyer,
+    id_client,
+    ROW_NUMBER() OVER (PARTITION BY id_client ORDER BY date_creation_loyer, id_loyer) AS nouvelle_sequence,
+    CONCAT('LOY-', id_client, '-', 
+           LPAD(ROW_NUMBER() OVER (PARTITION BY id_client ORDER BY date_creation_loyer, id_loyer), 3, '0')
+    ) AS nouveau_numero
+FROM loyers;
+
+-- Mettre à jour les numéros
+UPDATE loyers l
+INNER JOIN temp_nouveaux_numeros t ON l.id_loyer = t.id_loyer
+SET 
+    l.numero_sequence = t.nouvelle_sequence,
+    l.numero_loyer = t.nouveau_numero;
+
+SELECT '=== ÉTAPE 5: Recalcul des numéros ===' AS '';
+SELECT 
+    id_client,
+    COUNT(*) AS nombre_loyers,
+    MIN(numero_loyer) AS premier_numero,
+    MAX(numero_loyer) AS dernier_numero
+FROM loyers
+GROUP BY id_client
+ORDER BY id_client;
+
+-- ============================================================================
+-- ÉTAPE 6: Nettoyage de la table factures
+-- ============================================================================
+
+-- Supprimer les colonnes spécifiques aux loyers de la table factures
+ALTER TABLE factures
+    DROP COLUMN IF EXISTS periode_debut,
+    DROP COLUMN IF EXISTS periode_fin,
+    DROP COLUMN IF EXISTS duree_mois;
+
+SELECT '=== ÉTAPE 6: Nettoyage de la table factures ===' AS '';
+SELECT '✅ Colonnes loyers supprimées de la table factures' AS resultat;
+
+-- Supprimer les loyers de la table factures
+DELETE FROM factures WHERE type_facture = 'loyer';
+
+SELECT CONCAT('✅ ', ROW_COUNT(), ' loyer(s) supprimé(s) de la table factures') AS resultat;
+
+-- Si aucune autre valeur que 'facture' n'est utilisée, on peut supprimer le type_facture
+-- (À décommenter si vous voulez simplifier)
+-- ALTER TABLE factures DROP COLUMN IF EXISTS type_facture;
+
+-- ============================================================================
+-- ÉTAPE 7: Création de la vue pour compatibilité
+-- ============================================================================
+
+-- Vue pour faciliter les requêtes avec les informations clients
+CREATE OR REPLACE VIEW v_loyers_complets AS
+SELECT 
+    l.id_loyer,
+    l.numero_loyer,
+    l.numero_sequence,
+    l.id_client,
+    c.prenom AS prenom_client,
+    c.nom AS nom_client,
+    CONCAT(c.prenom, ' ', c.nom) AS nom_complet_client,
+    l.date_creation_loyer,
+    l.periode_debut,
+    l.periode_fin,
+    l.duree_mois,
+    l.motif,
+    l.description,
+    l.montant_total,
+    l.montant_mensuel_moyen,
+    l.statut,
+    
+    -- Calcul du montant payé
+    COALESCE(SUM(CASE WHEN ld.est_paye THEN ld.montant ELSE 0 END), 0) AS montant_paye,
+    
+    -- Calcul du montant restant
+    l.montant_total - COALESCE(SUM(CASE WHEN ld.est_paye THEN ld.montant ELSE 0 END), 0) AS montant_restant,
+    
+    -- Pourcentage payé
+    ROUND((COALESCE(SUM(CASE WHEN ld.est_paye THEN ld.montant ELSE 0 END), 0) / l.montant_total) * 100, 2) AS pourcentage_paye,
+    
+    -- Nombre de mois payés
+    COUNT(CASE WHEN ld.est_paye THEN 1 END) AS mois_payes,
+    
+    -- État de paiement
+    CASE 
+        WHEN COALESCE(SUM(CASE WHEN ld.est_paye THEN ld.montant ELSE 0 END), 0) = 0 THEN 'Non payé'
+        WHEN COALESCE(SUM(CASE WHEN ld.est_paye THEN ld.montant ELSE 0 END), 0) >= l.montant_total THEN 'Payé'
+        ELSE 'Partiellement payé'
+    END AS etat_paiement,
+    
+    l.date_creation,
+    l.date_modification
+FROM loyers l
+INNER JOIN clients c ON l.id_client = c.id
+LEFT JOIN loyer_details ld ON l.id_loyer = ld.id_loyer
+GROUP BY 
+    l.id_loyer, l.numero_loyer, l.numero_sequence, l.id_client,
+    c.prenom, c.nom, l.date_creation_loyer, l.periode_debut, l.periode_fin,
+    l.duree_mois, l.motif, l.description, l.montant_total, l.montant_mensuel_moyen,
+    l.statut, l.date_creation, l.date_modification;
+
+SELECT '=== ÉTAPE 7: Création de la vue v_loyers_complets ===' AS '';
+SELECT '✅ Vue créée avec succès' AS resultat;
+
+-- ============================================================================
+-- ÉTAPE 8: Création de la fonction pour générer le prochain numéro
+-- ============================================================================
+
+DELIMITER //
+
+DROP FUNCTION IF EXISTS get_next_loyer_numero//
+
+CREATE FUNCTION get_next_loyer_numero(p_id_client INT)
+RETURNS VARCHAR(20)
+DETERMINISTIC
+BEGIN
+    DECLARE v_next_sequence INT;
+    DECLARE v_numero VARCHAR(20);
+    
+    -- Récupérer le prochain numéro de séquence pour ce client
+    SELECT COALESCE(MAX(numero_sequence), 0) + 1 
+    INTO v_next_sequence
+    FROM loyers
+    WHERE id_client = p_id_client;
+    
+    -- Générer le numéro
+    SET v_numero = CONCAT('LOY-', p_id_client, '-', LPAD(v_next_sequence, 3, '0'));
+    
+    RETURN v_numero;
+END//
+
+DELIMITER ;
+
+SELECT '=== ÉTAPE 8: Fonction get_next_loyer_numero ===' AS '';
+SELECT '✅ Fonction créée avec succès' AS resultat;
+
+-- Test de la fonction
+SELECT 
+    c.id AS id_client,
+    CONCAT(c.prenom, ' ', c.nom) AS client,
+    get_next_loyer_numero(c.id) AS prochain_numero_loyer
+FROM clients c
+WHERE c.a_loyer = 1
+ORDER BY c.id
+LIMIT 5;
+
+-- ============================================================================
+-- ÉTAPE 9: Statistiques finales
+-- ============================================================================
+
+SELECT '=== STATISTIQUES FINALES ===' AS '';
+
+SELECT 'Nombre de loyers dans la nouvelle table' AS statistique, COUNT(*) AS valeur
+FROM loyers
+UNION ALL
+SELECT 'Nombre de détails mensuels', COUNT(*)
+FROM loyer_details
+UNION ALL
+SELECT 'Nombre de clients avec loyers', COUNT(DISTINCT id_client)
+FROM loyers
+UNION ALL
+SELECT 'Loyers actifs', COUNT(*)
+FROM loyers WHERE statut = 'actif'
+UNION ALL
+SELECT 'Montant total des loyers actifs', COALESCE(SUM(montant_total), 0)
+FROM loyers WHERE statut = 'actif';
+
+-- ============================================================================
+-- ÉTAPE 10: Vérifications de cohérence
+-- ============================================================================
+
+SELECT '=== VÉRIFICATIONS ===' AS '';
+
+-- Vérifier qu'il n'y a plus de loyers dans factures
+SELECT 
+    CASE 
+        WHEN COUNT(*) = 0 THEN '✅ Aucun loyer restant dans factures'
+        ELSE CONCAT('❌ ', COUNT(*), ' loyers encore présents dans factures')
+    END AS verification
+FROM factures 
+WHERE type_facture = 'loyer';
+
+-- Vérifier l'unicité des numéros par client
+SELECT 
+    CASE 
+        WHEN COUNT(*) = COUNT(DISTINCT CONCAT(id_client, '-', numero_sequence)) 
+        THEN '✅ Numéros séquentiels uniques par client'
+        ELSE '❌ Doublons détectés dans les numéros'
+    END AS verification
+FROM loyers;
+
+-- ============================================================================
+-- NETTOYAGE
+-- ============================================================================
+
+DROP TEMPORARY TABLE IF EXISTS temp_loyers_backup;
+DROP TEMPORARY TABLE IF EXISTS temp_nouveaux_numeros;
+
+SELECT '=== MIGRATION TERMINÉE ===' AS '';
+SELECT '✅ Les loyers sont maintenant dans une table séparée' AS resultat;
+SELECT '✅ La numérotation est séquentielle par client' AS resultat;
+SELECT '✅ La table factures est nettoyée' AS resultat;

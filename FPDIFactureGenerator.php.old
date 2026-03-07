@@ -1,31 +1,278 @@
 <?php
 
+require_once 'PDFGeneratorInterface.php';
+
 /**
- * FPDIFactureGenerator.php
- *
- * Générateur PDF pour les FACTURES du Centre La Grange.
- * Étend AbstractPDFGenerator (PDFBase.php) pour partager l'en-tête,
- * le pied de page, la fermeture de cadre et les utilitaires communs.
+ * FacturePDFGenerator.php
+ * 
+ * Classe responsable de la génération de fichiers PDF pour les factures
+ * du Centre La Grange. Cette classe utilise la bibliothèque FPDI.
+ * Gestion des sauts de page améliorée pour les factures sur plusieurs pages.
  */
 
-require_once 'PDFBase.php';
-
-class FPDIFactureGenerator extends AbstractPDFGenerator {
-    /**
-     * Titre principal de la facture (utilisé par AbstractPDFGenerator::genererEnTete)
-     */
-    protected function getTitrePrincipal(array $data): string {
-        $num = $data['numero_facture'] ?? '';
-        return 'Facture no ' . $num . ' : Location de salle « La Grange »';
+ class MyFPDI extends \tFPDF {
+    
+    public function __construct($orientation='P', $unit='mm', $size='A4') {
+        parent::__construct($orientation, $unit, $size);
+        
+        // Configuration UTF-8
+        $this->AddFont('DejaVu','','DejaVuSans.ttf',true);
+        $this->AddFont('DejaVu','B','DejaVuSans-Bold.ttf',true);
+        $this->AddFont('DejaVu','I','DejaVuSans-Oblique.ttf',true);
+    }
+    
+    // Ajouter la méthode empty_string manquante
+    protected function empty_string($str) {
+        return (is_null($str) || ($str === ''));
+    }
+    
+    public function getNumLines($text, $width) {
+        error_log("=== DEBUG getNumLines ===");
+        error_log("Texte: " . substr($text, 0, 50) . "...");
+        error_log("Width demandée: " . $width);
+        
+        $cw = $this->CurrentFont['cw'];
+        
+        // CORRECTION : Vérifier le type de $cw
+        if (!is_array($cw)) {
+            error_log("ERREUR: CurrentFont['cw'] n'est pas un tableau, type: " . gettype($cw));
+            error_log("Contenu de cw: " . substr(print_r($cw, true), 0, 100));
+            
+            // Utiliser une police de base comme fallback
+            $this->SetFont('Arial', '', 10);
+            $cw = $this->CurrentFont['cw'];
+            
+            if (!is_array($cw)) {
+                error_log("ERREUR CRITIQUE: Même Arial ne charge pas correctement");
+                error_log("=== FIN DEBUG getNumLines (ERREUR) ===");
+                return 1; // Fallback sécurisé
+            }
+        }
+        
+        if ($width == 0) {
+            return 1;
+        }
+        
+        $wmax = $width * 1000 / $this->FontSizePt;
+        error_log("wmax calculé: " . $wmax);
+        error_log("Nombre d'entrées dans cw: " . count($cw));
+        
+        $s = str_replace("\r", '', $text);
+        $nb = strlen($s);
+        if ($nb > 0 && $s[$nb-1] == "\n") {
+            $nb--;
+        }
+        
+        $sep = -1;
+        $i = 0;
+        $j = 0;
+        $l = 0.0;
+        $nl = 1;
+        
+        // NOUVEAU DEBUG : Tester les premières largeurs de caractères
+        error_log("Longueur texte: " . $nb);
+        $testWidth = 0;
+        for ($test = 0; $test < min(20, $nb); $test++) {
+            $char = $s[$test];
+            $charWidth = isset($cw[ord($char)]) ? floatval($cw[ord($char)]) : 0;
+            $testWidth += $charWidth;
+            error_log("Char[$test] = '$char' (ASCII:" . ord($char) . ") width: $charWidth, cumul: $testWidth");
+        }
+        
+        while ($i < $nb) {
+            $c = $s[$i];
+            if ($c == "\n") {
+                error_log("Retour ligne détecté à position $i");
+                $i++;
+                $sep = -1;
+                $j = $i;
+                $l = 0.0;
+                $nl++;
+                continue;
+            }
+            if ($c == ' ') {
+                $sep = $i;
+            }
+            
+            $charWidth = isset($cw[ord($c)]) ? floatval($cw[ord($c)]) : 0;
+            $l += $charWidth;
+            
+            // DEBUG : Logger quand on dépasse
+            if ($l > $wmax) {
+                error_log("DÉPASSEMENT à position $i, caractère '$c', largeur cumulative: $l > $wmax");
+                if ($sep == -1) {
+                    error_log("Pas d'espace trouvé, coupe forcée");
+                    if ($i == $j) {
+                        $i++;
+                    }
+                } else {
+                    error_log("Coupe à l'espace position $sep");
+                    $i = $sep + 1;
+                }
+                $sep = -1;
+                $j = $i;
+                $l = 0;
+                $nl++;
+                error_log("Nouvelle ligne créée, nl = $nl");
+            } else {
+                $i++;
+            }
+        }
+        
+        error_log("Résultat final: " . $nl);
+        error_log("=== FIN DEBUG getNumLines ===");
+        return $nl;
     }
 
+    // Méthode pour dessiner un rectangle aux coins arrondis
+    public function RoundedRect($x, $y, $w, $h, $r, $corners='1234', $style='') {
+        $k = $this->k;
+        $hp = $this->h;
+        if($style=='F')
+            $op='f';
+        elseif($style=='FD' || $style=='DF')
+            $op='B';
+        else
+            $op='S';
+        $MyArc = 4/3 * (sqrt(2) - 1);
+        $this->_out(sprintf('%.2F %.2F m', ($x+$r)*$k, ($hp-$y)*$k));
+        
+        $xc = $x+$w-$r;
+        $yc = $y+$r;
+        $this->_out(sprintf('%.2F %.2F l', $xc*$k, ($hp-$y)*$k));
+        
+        if (strpos($corners, '2')===false)
+            $this->_out(sprintf('%.2F %.2F l', ($x+$w)*$k, ($hp-$y)*$k));
+        else
+            $this->_Arc($xc + $r*$MyArc, $yc - $r, $xc + $r, $yc - $r*$MyArc, $xc + $r, $yc);
+        
+        $xc = $x+$w-$r;
+        $yc = $y+$h-$r;
+        $this->_out(sprintf('%.2F %.2F l', ($x+$w)*$k, ($hp-$yc)*$k));
+        
+        if (strpos($corners, '3')===false)
+            $this->_out(sprintf('%.2F %.2F l', ($x+$w)*$k, ($hp-($y+$h))*$k));
+        else
+            $this->_Arc($xc + $r, $yc + $r*$MyArc, $xc + $r*$MyArc, $yc + $r, $xc, $yc + $r);
+        
+        $xc = $x+$r;
+        $yc = $y+$h-$r;
+        $this->_out(sprintf('%.2F %.2F l', $xc*$k, ($hp-($y+$h))*$k));
+        
+        if (strpos($corners, '4')===false)
+            $this->_out(sprintf('%.2F %.2F l', ($x)*$k, ($hp-($y+$h))*$k));
+        else
+            $this->_Arc($xc - $r*$MyArc, $yc + $r, $xc - $r, $yc + $r*$MyArc, $xc - $r, $yc);
+        
+        $xc = $x+$r;
+        $yc = $y+$r;
+        $this->_out(sprintf('%.2F %.2F l', ($x)*$k, ($hp-$yc)*$k));
+        
+        if (strpos($corners, '1')===false)
+        {
+            $this->_out(sprintf('%.2F %.2F l', ($x)*$k, ($hp-$y)*$k));
+            $this->_out(sprintf('%.2F %.2F l', ($x+$r)*$k, ($hp-$y)*$k));
+        }
+        else
+            $this->_Arc($xc - $r, $yc - $r*$MyArc, $xc - $r*$MyArc, $yc - $r, $xc, $yc - $r);
+        $this->_out($op);
+    }
     
+    protected function _Arc($x1, $y1, $x2, $y2, $x3, $y3) {
+        $h = $this->h;
+        $this->_out(sprintf('%.2F %.2F %.2F %.2F %.2F %.2F c ', $x1*$this->k, ($h-$y1)*$this->k,
+            $x2*$this->k, ($h-$y2)*$this->k, $x3*$this->k, ($h-$y3)*$this->k));
+    }
     
+    // Méthode pour obtenir les marges
+    public function getMargins() {
+        return array(
+            'left' => $this->lMargin,
+            'right' => $this->rMargin,
+            'top' => $this->tMargin,
+            'bottom' => $this->bMargin
+        );
+    }
+    
+    // Méthode pour obtenir la largeur de la page
+    public function getPageWidth() {
+        return $this->w;
+    }
+    
+    // Méthode pour obtenir la hauteur de la page
+    public function getPageHeight() {
+        return $this->h;
+    }
+    
+    // Méthode pour obtenir le numéro de page actuel
+    public function getPage() {
+        return $this->page;
+    }
+    
+    // Méthode pour obtenir le nombre total de pages
+    public function getNumPages() {
+        return $this->page;
+    }
+    
+    // Méthode pour définir la page actuelle
+    public function setPage($page) {
+        if ($page > 0 && $page <= $this->page) {
+            $this->page = $page;
+        }
+    }
+    
+    // Méthode pour simuler l'opacité
+    public function SetAlpha($alpha, $mode='Normal') {
+        // FPDI n'a pas de support natif pour l'opacité
+        // Cette méthode est un placeholder pour compatibilité
+    }
+    
+    // Méthodes pour transformer (non supportées dans FPDI de base)
+    public function startTransform() {
+        // Placeholder
+    }
+    
+    public function stopTransform() {
+        // Placeholder
+    }
+    
+    // Méthode pour définir le style de ligne
+    public function SetLineStyle($style) {
+        if (isset($style['width'])) {
+            $this->SetLineWidth($style['width']);
+        }
+        if (isset($style['color'])) {
+            $this->SetDrawColor($style['color'][0], $style['color'][1], $style['color'][2]);
+        }
+    }
+    
+    // FPDI utilise SetFont sans paramètre UTF-8 spécifique
+    public function SetFontUtf8($family, $style='', $size=0) {
+        $this->SetFont($family, $style, $size);
+    }
+}
+
+class FPDIFactureGenerator implements PDFGeneratorInterface {
+    private $fontRegular;
+    private $fontBold;
+    private $fontItalic;
+    
+    // Variables pour la gestion des sauts de page
+    private $totalPages = 1;
+    private $currentPage = 1;
+    private $montantReport = 0;
+    private $frameStartY = 0;
+    private $frameOpen = false;
+    
+    // Variables pour les dimensions du tableau de détails
     private $descriptionWidth;
     private $uniteWidth;
     private $quantiteWidth;
     private $prixWidth;
     private $totalWidth;
+    private $textStartX;
+    private $frameWidth;
+    private $frameX;
     
     // Hauteur du pied de page (estimation par défaut, recalculée dynamiquement)
     private $hauteurPiedPage = 100; // en mm
@@ -140,11 +387,6 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
             // Définir la police
             $pdf->SetFont($this->fontRegular, '', 12);
             
-            // Préparer date_document pour AbstractPDFGenerator::genererEnTete
-            if (!isset($facture['date_document'])) {
-                $facture['date_document'] = $facture['date_facture'] ?? date('Y-m-d');
-            }
-
             // Générer l'en-tête approprié pour cette page
             error_log("Génération de l'en-tête pour la page $pageActuelle de {$this->totalPages}");
             if ($pageActuelle == 1) {
@@ -680,14 +922,38 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
         $this->frameOpen = false;
     }
 
+    /**
+     * Ajoute la numérotation sur toutes les pages du document
+     * Ne doit être appelée que si le document a plus d'une page
+     *
+     * @param FPDI $pdf L'objet PDF
+     */
+    private function ajouterNumerotationPages($pdf) {
+        // Sauvegarder les valeurs originales
+        $startPage = $pdf->getPage();
+        
+        for ($i = 1; $i <= $pdf->getNumPages(); $i++) {
+            $pdf->setPage($i);
+            
+            // Position en bas à droite
+            $pdf->SetY(-15); // 15mm du bas
+            $pdf->SetX(-30); // 30mm de la droite
+            
+            $pdf->SetFont($this->fontRegular, '', 8);
+            $pdf->Cell(20, 10, 'Page ' . $i . '/' . $this->totalPages, 0, 0, 'R');
+        }
+        
+        // Restaurer la page active
+        $pdf->setPage($startPage);
+    }
 
     /**
-     * Génère un en-tête minimal pour les pages suivantes d'une facture multi-pages
+     * Génère l'en-tête du PDF facture
      * 
      * @param FPDI $pdf L'objet PDF
      * @param array $facture Données de la facture
      */
-    protected function genererEnTetePageSuivante(MyFPDI $pdf, array $data): void {
+    private function genererEnTete($pdf, $facture) {
         // Ajouter le logo en haut à gauche
         $logoPath = __DIR__ . '/assets/logo.png';
         if (file_exists($logoPath)) {
@@ -696,14 +962,113 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
 
         // Position pour la date (alignée à droite)
         $pdf->SetY(20); 
-        $pdf->Cell(0, 5, 'Corcelles-près-Payerne, le ' . $this->dateEnFrancais($data['date_facture']), 0, 1, 'R');
+        $dateText = 'Corcelles-près-Payerne, le ' . $this->dateEnFrancais($facture['date_facture']);
+        
+        // Calculer la position exacte pour aligner la date à droite
+        $pageWidth = $pdf->getPageWidth();
+        $rightMargin = $pdf->getMargins()['right'];
+        $dateTextWidth = $pdf->GetStringWidth($dateText);
+        $dateStartX = $pageWidth - $rightMargin - $dateTextWidth;
+        
+        // Positionner et écrire la date
+        $pdf->SetXY($dateStartX, 20);
+        $pdf->Cell($dateTextWidth, 5, $dateText, 0, 1, 'L');
+        
+        // Utiliser la même position X pour l'adresse du client
+        $clientAddressX = $dateStartX;
+
+        // Positionnement pour l'adresse du centre 
+        $pdf->SetY(35); // 5mm sous le logo
+
+        // Adresse du Centre La Grange 
+        $pdf->Cell(120, 5, 'Route du Bornalet 16', 0, 1, 'L');
+        $pdf->Cell(120, 5, '1562 Corcelles', 0, 1, 'L');
+        $pdf->Cell(120, 5, 'centrelagrange@gmail.ch', 0, 1, 'L');
+        $pdf->Ln(5); 
+
+        // Si la facture est Payée ou Annulée, ajouter le tampon
+        if (isset($facture['etat']) && ($facture['etat'] === 'Payée' || $facture['etat'] === 'Annulée')) {
+            $couleurs = [
+                'Payée' => [0, 128, 0],   // Vert foncé
+                'Annulée' => [255, 0, 0]  // Rouge
+            ];
+            
+            // Position du tampon aligné avec la première ligne de l'adresse
+            $pdf->SetFont($this->fontBold, 'B', 12);
+            $pdf->SetTextColor($couleurs[$facture['etat']][0], $couleurs[$facture['etat']][1], $couleurs[$facture['etat']][2]);
+            
+            // Dessiner un rectangle aux coins légèrement arrondis
+            $pdf->SetLineStyle(['width' => 0.5, 'color' => $couleurs[$facture['etat']]]);
+            // Simulation d'opacité plus claire
+            $pdf->RoundedRect(110, 35, 40, 7, 1, '1111', 'D');
+            
+            // Centrer le texte horizontalement dans le rectangle
+            $text = $facture['etat'];
+            $textWidth = $pdf->GetStringWidth($text);
+            $x = 110 + (40 - $textWidth) / 2;
+            $pdf->SetXY($x, 35);
+            $pdf->Cell($textWidth, 7, $text, 0, 1, 'L');
+            
+            // Réinitialiser
+            $pdf->SetTextColor(0, 0, 0);
+            $pdf->SetFont($this->fontRegular, '', 12);
+            
+            $pdf->Ln(15); // Petit espace après le tampon
+        }
+
+        // Adresse du client (alignée avec le début du texte de la date)
+        $lineHeight = 5;
+        
+        // Positionnement pour l'adresse client
+        // Gestion du titre (qui peut être absent)
+        if (!empty(trim($facture['titre']))) {
+            $pdf->SetX($clientAddressX);
+            $pdf->Cell(120, $lineHeight, $facture['titre'], 0, 1, 'L');
+        }
+        
+        $pdf->SetX($clientAddressX);
+        $pdf->Cell(120, $lineHeight, $facture['prenom'] . ' ' . $facture['nom'], 0, 1, 'L');
+        $pdf->SetX($clientAddressX);
+        $pdf->Cell(120, $lineHeight, $facture['rue'] . ' ' . $facture['numero'], 0, 1, 'L');
+        $pdf->SetX($clientAddressX);
+        $pdf->Cell(120, $lineHeight, '', 0, 1, 'L'); // Ligne vide
+        $pdf->SetX($clientAddressX);
+        $pdf->Cell(120, $lineHeight, $facture['code_postal'] . ' ' . $facture['localite'], 0, 1, 'L');
+        
+        // 4 Lignes vides séparant l'adresse du titre de la facture
+        $pdf->Ln(20);
+        
+        // Titre de la facture
+        $pdf->SetFont($this->fontBold, 'B', 12);
+        $pdf->Cell(0, 5, 'Facture no ' . $facture['numero_facture'] . ' : Location de salle « La Grange »', 0, 1, 'L');
+        
+        // AJOUT : Ligne vide supplémentaire après le titre de la facture
+        $pdf->Ln(5);
+    }
+
+    /**
+     * Génère un en-tête minimal pour les pages suivantes d'une facture multi-pages
+     * 
+     * @param FPDI $pdf L'objet PDF
+     * @param array $facture Données de la facture
+     */
+    private function genererEnTetePageSuivante($pdf, $facture) {
+        // Ajouter le logo en haut à gauche
+        $logoPath = __DIR__ . '/assets/logo.png';
+        if (file_exists($logoPath)) {
+            $pdf->Image($logoPath, 20, 20, 30);
+        }
+
+        // Position pour la date (alignée à droite)
+        $pdf->SetY(20); 
+        $pdf->Cell(0, 5, 'Corcelles-près-Payerne, le ' . $this->dateEnFrancais($facture['date_facture']), 0, 1, 'R');
 
         // Positionnement pour le titre de la facture (sans adresse)
         $pdf->SetY(40); // Position fixe pour l'en-tête des pages suivantes
         
         // Titre de la facture
         $pdf->SetFont($this->fontBold, 'B', 12);
-        $pdf->Cell(0, 5, 'Facture no ' . $data['numero_facture'] . ' : Location de salle « La Grange »', 0, 1, 'L');
+        $pdf->Cell(0, 5, 'Facture no ' . $facture['numero_facture'] . ' : Location de salle « La Grange »', 0, 1, 'L');
         
         // Ajout d'un espacement entre le titre et le début du tableau
         $pdf->Ln(5);
@@ -875,6 +1240,120 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
         $pdf->Cell($pdf->GetStringWidth($montantTotal), 7, $montantTotal, 0, 1, 'R');
     }
 
+    /**
+    * Ferme le cadre de détails actuel
+    * 
+    * @param FPDI $pdf L'objet PDF
+    * @param bool $avecTotal Indique si c'est le dernier cadre avec le total final
+    */
+    private function fermerCadre($pdf, $avecTotal = true) {
+        // Fin du cadre avec une marge supplémentaire pour éviter qu'il soit trop serré
+        $frameEndY = $pdf->GetY() + 7; // Augmenter légèrement pour plus d'espace
+
+        // Dessiner le cadre à double bordure
+        $pdf->SetLineWidth(0.4);
+        $pdf->SetDrawColor(150, 150, 150);
+        $pdf->Rect($this->frameX, $this->frameStartY, $this->frameWidth, $frameEndY - $this->frameStartY, 'D');
+
+        // Deuxième bordure (intérieure)
+        $pdf->SetLineWidth(0.2);
+        $pdf->SetDrawColor(180, 180, 180);
+        $pdf->Rect($this->frameX + 1, $this->frameStartY + 1, $this->frameWidth - 2, ($frameEndY - $this->frameStartY) - 2, 'D');
+
+        // Positionner après le cadre
+        $pdf->SetY($frameEndY + 5);
+        $pdf->SetFont($this->fontRegular, '', 12);
+    }
+    
+	/**
+     * Génère le pied de page du PDF facture avec les informations de paiement
+     * 
+     * @param FPDI $pdf L'objet PDF
+     * @param array $relationsBancaires Paramètres des coordonnées bancaires
+     * @param int $delaiPaiement Délai de paiement en jours
+     */
+    private function genererPiedPage($pdf, $relationsBancaires = [], $delaiPaiement = 30, $signature = []) {
+        
+        // Calculer la hauteur totale estimée du pied de page
+        $beneficiaires = isset($relationsBancaires['Beneficiaire']) 
+            ? explode(',', $relationsBancaires['Beneficiaire']) 
+            : ['Johanna Cherbuin', 'Chemin du Châtelard 9', '1562 Corcelles-près-Payerne'];
+        $beneficiaires = array_map('trim', $beneficiaires);
+        
+        // Estimation de la hauteur totale du pied de page
+        $hauteurEstimee = 0;
+        $hauteurEstimee += 7; // "Paiement net à X jours"
+        $hauteurEstimee += 7; // "Montant total à verser à :"
+        $hauteurEstimee += 5; // Banque
+        $hauteurEstimee += 5; // IBAN
+        $hauteurEstimee += 5; // "Pour :"
+        $hauteurEstimee += (count($beneficiaires) * 5); // Lignes bénéficiaire
+        $hauteurEstimee += 5; // Espacement
+        $hauteurEstimee += 7; // "Avec nos remerciements"
+        $hauteurEstimee += 5; // Espacement
+        $hauteurEstimee += 7; // Signature ligne 1
+        $hauteurEstimee += 7; // Signature ligne 2
+        
+        // Calculer la position de début pour que la dernière ligne soit à 15mm au-dessus de la marge du bas
+        $pageHeight = $pdf->getPageHeight();
+        $bottomMargin = $pdf->getMargins()['bottom'];
+        $footerStartY = $pageHeight - $bottomMargin - 15 - $hauteurEstimee;
+        
+        // Positionner le pied de page
+        $pdf->SetY($footerStartY);
+        
+        // Informations de paiement
+        $pdf->SetFont($this->fontRegular, '', 12);
+        
+        // Ajouter la ligne de délai de paiement
+        $pdf->Cell(0, 7, 'Paiement net à ' . $delaiPaiement . ' jours.', 0, 1, 'L');
+        
+        $pdf->Cell(0, 7, 'Montant total à verser à :', 0, 1, 'L');
+
+        // Afficher les informations bancaires depuis les paramètres avec espacement réduit
+        $pdf->Cell(0, 5, isset($relationsBancaires['Banque']) ? $relationsBancaires['Banque'] : 'BCV 1001 Lausanne', 0, 1, 'L');
+        $pdf->Cell(0, 5, isset($relationsBancaires['IBAN']) ? $relationsBancaires['IBAN'] : 'CH 88 0076 7000 E536 2645 5', 0, 1, 'L');
+
+        // Affichage des lignes du bénéficiaire
+        $pdf->Cell(0, 5, 'Pour :', 0, 1, 'L');
+        foreach ($beneficiaires as $ligne) {
+            $pdf->Cell(0, 5, $ligne, 0, 1, 'L');
+        }
+
+        // Une seule ligne d'espace après
+        $pdf->Ln(5);
+
+        // "Avec nos remerciements" aligné à gauche
+        $pdf->Cell(0, 7, 'Avec nos remerciements.', 0, 1, 'L');
+        $pdf->Ln(5);
+
+        // Position pour la signature (alignée avec l'adresse du client, à droite)
+        $clientAddressX = 110; // Même position X que pour l'adresse du client
+
+        // Déplacer à la position X alignée avec l'adresse client
+        $pdf->SetX($clientAddressX);
+
+        // Signature avec formatage italique et couleur bordeaux
+        $pdf->SetTextColor(128, 0, 32); // Couleur bordeaux
+        $pdf->SetFont($this->fontItalic, 'I', 12); // Italique - dans FPDI c'est 'I' au lieu de ''
+        
+        // Signature : première ligne du Beneficiaire ou valeur par défaut
+        $signatureLigne1 = !empty($signature['Ligne 1']) ? $signature['Ligne 1'] : 'Johanna_Cherbuin';
+        $pdf->Cell(0, 7, $signatureLigne1, 0, 1, 'L');
+
+        // Déplacer à la position X alignée avec l'adresse client pour la deuxième ligne
+        $pdf->SetX($clientAddressX);
+
+        // Retour à la couleur noire 
+        $pdf->SetTextColor(0, 0, 0); 
+        
+        // Signature : deuxième ligne ou valeur par défaut
+        $signatureLigne2 = !empty($signature['Ligne 2']) ? $signature['Ligne 2'] : 'Centre « La_Grange »';
+		$pdf->Cell(0, 7, $signatureLigne2, 0, 1, 'L');
+
+        // Réinitialiser la police pour la suite
+        $pdf->SetFont($this->fontRegular, '', 12);
+    }
 
     /**
      * Tampon de statut à 50mm sous la première ligne de la facture
@@ -918,6 +1397,30 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
         $pdf->SetTextColor(0, 0, 0);
     }
     
+    /**
+    * Formater une date au format français
+    * 
+    * @param string $date Date au format Y-m-d
+    * @return string Date formatée (ex: 26 mars 2025)
+    */
+    private function dateEnFrancais($date) {
+        // FPDI ne gère pas bien l'UTF-8, on utilise une approche plus simple
+        $dateObj = new DateTime($date);
+        
+        // Tableau des mois en français
+        $mois = [
+            1 => 'janvier', 2 => 'février', 3 => 'mars', 4 => 'avril',
+            5 => 'mai', 6 => 'juin', 7 => 'juillet', 8 => 'août',
+            9 => 'septembre', 10 => 'octobre', 11 => 'novembre', 12 => 'décembre'
+        ];
+        
+        $jour = $dateObj->format('j');
+        $moisNum = (int)$dateObj->format('n');
+        $moisTexte = $mois[$moisNum];
+        $annee = $dateObj->format('Y');
+        
+        return $jour . ' ' . $moisTexte . ' ' . $annee;
+    }
 
     /**
      * Calcule la hauteur totale de l'en-tête de la facture
@@ -1031,23 +1534,6 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
      * @param array $relationsBancaires Paramètres des coordonnées bancaires
      * @return int Nombre total de pages
      */
-    /**
-     * Implémentation de AbstractPDFGenerator::calculerNombrePages
-     */
-    /**
-     * Implémentation de AbstractPDFGenerator::genererContenu
-     * Note : la logique multi-pages est gérée dans genererPDF()
-     * Cette méthode est un stub requis par l'interface abstraite.
-     */
-    protected function genererContenu(MyFPDI $pdf, array $data, array $params, int $page): void {
-        // Le flux de génération de facture est géré entièrement dans genererPDF()
-        // car il nécessite une gestion fine des pages multiples et des reports.
-    }
-
-    protected function calculerNombrePages(array $data, array $params): int {
-        return $this->calculerNombreTotalPages($data, $params);
-    }
-
     private function calculerNombreTotalPages($facture, $relationsBancaires) {
         error_log('=== CALCULER NOMBRE TOTAL PAGES ===');
         $lignes = $facture['lignes'];

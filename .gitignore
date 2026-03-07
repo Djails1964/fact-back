@@ -16,3 +16,6 @@ logs/php-errors.log
 /storage
 /logs
 *.log
+/backups
+/logs
+logs/php-errors.log

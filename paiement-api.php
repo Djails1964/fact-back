@@ -198,6 +198,7 @@ try {
                 'statut' => isset($_GET['statut']) ? $_GET['statut'] : null,
                 'id_client' => isset($_GET['id_client']) ? intval($_GET['id_client']) : null,
                 'id_facture' => isset($_GET['id_facture']) ? intval($_GET['id_facture']) : null,
+                'libre' => isset($_GET['libre']) ? (bool)intval($_GET['libre']) : null,
                 'page' => $page,
                 'limit' => $limit
             ];

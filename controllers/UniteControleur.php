@@ -1,5 +1,5 @@
 <?php
-// controllers/UniteControleur.php - VERSION CORRIGÉE
+// controllers/UniteControleur.php - VERSION AVEC CASCADE DELETE
 
 require_once __DIR__ . '/base/DatabaseHelpers.php';
 require_once __DIR__ . '/base/UsageChecker.php';
@@ -14,7 +14,6 @@ class UniteControleur {
     }
     
     public function getAll(): array {
-        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
         $sql = "SELECT 
                     id as id_unite, 
                     code as code_unite, 
@@ -25,7 +24,6 @@ class UniteControleur {
     }
     
     public function getById(int $id_unite): ?array {
-        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
         $sql = "SELECT 
                     id as id_unite, 
                     code as code_unite, 
@@ -36,7 +34,6 @@ class UniteControleur {
     }
     
     public function getByService(int $id_service): array {
-        // ✅ CORRECTION: Ajout des alias cohérents avec le pattern _unite
         $sql = "SELECT 
                     u.id as id_unite, 
                     u.code as code_unite, 
@@ -56,8 +53,8 @@ class UniteControleur {
     }
 
     /**
-     * Récupère toutes les relations services-unités avec les détails des unités
-     * Inclut le flag isDefault pour savoir quelle unité est par défaut pour chaque service
+     * Recupere toutes les relations services-unites avec les details des unites
+     * Inclut le flag isDefault pour savoir quelle unite est par defaut pour chaque service
      * @return array
      */
     public function getServicesUnitesDetaillees(): array {
@@ -98,7 +95,7 @@ class UniteControleur {
         
         $id_unite = $this->getLastInsertId();
         
-        // Construction de l'objet à partir des données déjà disponibles
+        // Construction de l'objet a partir des donnees deja disponibles
         $objet = [
             'id_unite' => $id_unite,
             'code_unite' => $data['code_unite'],
@@ -116,7 +113,7 @@ class UniteControleur {
         $setFields = [];
         $params = [];
         
-        // ✅ CORRECTION: Support des deux formats de noms de champs
+        // Support des deux formats de noms de champs
         if (isset($data['code_unite']) || isset($data['code'])) {
             $setFields[] = "code = ?";
             $params[] = $data['code_unite'] ?? $data['code'];
@@ -141,7 +138,7 @@ class UniteControleur {
         
         $stmt = $this->executeQuery($sql, $params);
         
-        // Gestion du champ isDefault au niveau de la relation service-unité
+        // Gestion du champ isDefault au niveau de la relation service-unite
         if (isset($data['isDefault']) && isset($data['id_service'])) {
             $id_service = $data['id_service'];
             $this->updateServiceUniteDefault($id_service, $id_unite, $data['isDefault']);
@@ -150,36 +147,70 @@ class UniteControleur {
         return $stmt->rowCount() > 0;
     }
     
+    /**
+     * Supprime une unite
+     * 
+     * Avec les FK CASCADE DELETE en base de donnees:
+     * - Les tarifs standards associes sont supprimes automatiquement
+     * - Les tarifs speciaux associes sont supprimes automatiquement
+     * 
+     * La suppression est bloquee par les FK RESTRICT si:
+     * - L'unite est encore liee a un service (services_unites)
+     * - L'unite est utilisee dans des lignes de facture (lignesfacture)
+     * 
+     * @param int $id_unite ID de l'unite a supprimer
+     * @return array Resultat de l'operation
+     */
     public function delete(int $id_unite): array {
-        // Vérifier l'usage
-        $usageCheck = $this->checkUsage($id_unite);
-
-        if ($usageCheck['isUsed']) {
-            throw new Exception('Impossible de supprimer cette unité car elle est utilisée dans des tarifs ou des liaisons');
-        }
-
-        $stmt = $this->executeQuery("DELETE FROM unites WHERE id = ?", [$id_unite]);
+        // La base de donnees gere les contraintes via les FK:
+        // - RESTRICT sur services_unites.unite_id -> bloque si liaison existe
+        // - RESTRICT sur lignesfacture.unite_id -> bloque si utilisee dans factures
+        // - CASCADE sur tarifs.unite_id -> supprime les tarifs automatiquement
+        // - CASCADE sur tarifs_speciaux.unite_id -> supprime les tarifs speciaux automatiquement
         
-        return [
-            'success' => true,
-            'message' => 'L\'unité a été supprimée avec succès'
-        ];
+        try {
+            $this->executeQuery("DELETE FROM unites WHERE id = ?", [$id_unite]);
+            
+            return [
+                'success' => true,
+                'message' => "L'unite a ete supprimee avec succes (tarifs associes supprimes automatiquement)"
+            ];
+        } catch (PDOException $e) {
+            // Analyser le message d'erreur pour donner un message comprehensible
+            $errorMessage = $e->getMessage();
+            
+            if (strpos($errorMessage, 'fk_services_unites_unite') !== false) {
+                throw new Exception(
+                    "Impossible de supprimer cette unite car elle est encore liee a un ou plusieurs services. " .
+                    "Veuillez d'abord dissocier l'unite de tous les services."
+                );
+            }
+            
+            if (strpos($errorMessage, 'fk_lignesfacture_unite') !== false) {
+                throw new Exception(
+                    "Impossible de supprimer cette unite car elle est utilisee dans des lignes de facture."
+                );
+            }
+            
+            // Erreur inconnue
+            throw new Exception("Erreur lors de la suppression de l'unite: " . $errorMessage);
+        }
     }
 
     public function linkToService(int $id_unite, int $id_service, bool $isDefault = false): bool {
-        // Vérifier si la liaison existe déjà
+        // Verifier si la liaison existe deja
         $existingLink = $this->fetchOne(
             "SELECT id FROM services_unites WHERE service_id = ? AND unite_id = ?",
             [$id_service, $id_unite]
         );
         
         if (!$existingLink) {
-           // Créer une nouvelle liaison
+           // Creer une nouvelle liaison
             $sql = "INSERT INTO services_unites (service_id, unite_id, isDefault) VALUES (?, ?, ?)";
             $this->executeQuery($sql, [$id_service, $id_unite, $isDefault ? 1 : 0]);
         }
         
-        // Si c'est par défaut, désactiver les autres
+        // Si c'est par defaut, desactiver les autres
         if ($isDefault) {
             $this->updateServiceUniteDefault($id_service, $id_unite, true);
         }
@@ -188,7 +219,7 @@ class UniteControleur {
     }
 
     public function unlinkFromService(int $id_unite, int $id_service): array {
-        // Vérifier d'abord si cette liaison est utilisée dans des factures
+        // Verifier d'abord si cette liaison est utilisee dans des factures
         $checkFacture = $this->checkServiceUniteUsageInFacture($id_service, $id_unite);
 
         if ($checkFacture['isUsed']) {
@@ -206,7 +237,7 @@ class UniteControleur {
             
             return [
                 'success' => true,
-                'message' => 'La liaison a été supprimée avec succès',
+                'message' => 'La liaison a ete supprimee avec succes',
                 'action' => 'supprime'
             ];
         }
@@ -214,19 +245,19 @@ class UniteControleur {
 
     public function updateServiceUniteDefault(int $id_service, int $id_unite, bool $isDefault = true): array {
         if ($isDefault) {
-            // Désactiver toutes les autres unités par défaut pour ce service
+            // Desactiver toutes les autres unites par defaut pour ce service
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 0 WHERE service_id = ?",
                 [$id_service]
             );
             
-            // Définir la nouvelle unité par défaut
+            // Definir la nouvelle unite par defaut
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 1 WHERE service_id = ? AND unite_id = ?",
                 [$id_service, $id_unite]
             );
         } else {
-            // Désactiver cette unité comme défaut
+            // Desactiver cette unite comme defaut
             $this->executeQuery(
                 "UPDATE services_unites SET isDefault = 0 WHERE service_id = ? AND unite_id = ?",
                 [$id_service, $id_unite]
@@ -235,7 +266,7 @@ class UniteControleur {
         
         return [
             'success' => true,
-            'message' => 'Unité par défaut mise à jour avec succès'
+            'message' => 'Unite par defaut mise a jour avec succes'
         ];
     }
     
@@ -258,8 +289,8 @@ class UniteControleur {
             'isUsed' => $isUsed,
             'count' => $count,
             'message' => $isUsed 
-                ? "Cette liaison est utilisée dans $count ligne(s) de facture et ne peut pas être supprimée." 
-                : "Cette liaison peut être supprimée en toute sécurité."
+                ? "Cette liaison est utilisee dans $count ligne(s) de facture et ne peut pas etre supprimee." 
+                : "Cette liaison peut etre supprimee en toute securite."
         ];
     }
 }

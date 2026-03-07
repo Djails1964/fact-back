@@ -1,0 +1,289 @@
+-- ============================================================================
+-- Migration 010 : Traçabilité des paiements libres
+-- ============================================================================
+-- Date       : 2026-02-26
+-- Remplace   : 010_ajout_montant_original_paiement.sql
+--              011_tracabilite_paiements_libres.sql
+--              (ces deux scripts sont fusionnés ici — ne pas les rejouer)
+--
+-- Objectif   : Permettre le suivi complet d'un paiement libre partiellement
+--              attribué à des loyers ou des factures.
+--
+-- Deux nouvelles colonnes sur la table `paiement` :
+--
+--   montant_original    : montant saisi à la création (immuable)
+--                         montant_paye  = solde encore disponible
+--                         (réduit à chaque attribution)
+--
+--   id_paiement_source  : FK auto-référente vers le paiement libre source
+--                         NULL  = paiement standard (ou libre original)
+--                         ≠ NULL = attribution issue d'un paiement libre
+--
+-- Exemple après migration :
+--   id | montant_paye | montant_original | id_paiement_source
+--    1 |     2810.00  |        5000.00   | NULL   ← libre original
+--    2 |      730.00  |         730.00   |    1   ← loyer janvier
+--    3 |      730.00  |         730.00   |    1   ← loyer février
+--    4 |      730.00  |         730.00   |    1   ← loyer mars
+--
+-- Idempotence : chaque opération vérifie son état avant d'agir.
+--              Le script peut être rejoué sans erreur.
+-- ============================================================================
+
+SET @OLD_FOREIGN_KEY_CHECKS = @@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS = 0;
+
+SELECT '============================================================================' AS '';
+SELECT 'Migration 010 : Traçabilité des paiements libres'                           AS '';
+SELECT '============================================================================' AS '';
+
+-- ============================================================================
+-- ÉTAPE 1 : Colonne montant_original
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 1 : Ajout colonne montant_original ===' AS info;
+
+-- Vérifier si la colonne existe déjà
+SET @col_montant_original = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'paiement'
+      AND COLUMN_NAME  = 'montant_original'
+);
+
+-- Ajouter la colonne uniquement si absente
+SET @sql = IF(
+    @col_montant_original = 0,
+    'ALTER TABLE paiement
+        ADD COLUMN montant_original DECIMAL(10,2) NULL
+            COMMENT ''Montant original saisi à la création (immuable). montant_paye représente le solde restant disponible.''
+            AFTER montant_paye',
+    'SELECT ''  ↳ Colonne montant_original existe déjà — ignoré'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- Peupler les lignes dont montant_original est encore NULL
+UPDATE paiement
+SET    montant_original = montant_paye
+WHERE  montant_original IS NULL;
+
+SELECT CONCAT('  ↳ ', ROW_COUNT(), ' ligne(s) initialisée(s) avec montant_paye') AS info;
+
+-- Passer la colonne NOT NULL maintenant que tout est peuplé
+-- (idempotent : MODIFY est sans effet si le type est déjà identique)
+ALTER TABLE paiement
+    MODIFY COLUMN montant_original DECIMAL(10,2) NOT NULL
+        COMMENT 'Montant original saisi à la création (immuable). montant_paye représente le solde restant disponible.';
+
+SELECT '  ↳ Colonne montant_original NOT NULL confirmée' AS info;
+
+-- ============================================================================
+-- ÉTAPE 2 : Colonne id_paiement_source
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 2 : Ajout colonne id_paiement_source ===' AS info;
+
+SET @col_source = (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'paiement'
+      AND COLUMN_NAME  = 'id_paiement_source'
+);
+
+SET @sql = IF(
+    @col_source = 0,
+    'ALTER TABLE paiement
+        ADD COLUMN id_paiement_source INT NULL DEFAULT NULL
+            COMMENT ''Référence vers le paiement libre source (attribution partielle sur loyer ou facture). NULL = paiement standard.''
+            AFTER id_loyer_detail',
+    'SELECT ''  ↳ Colonne id_paiement_source existe déjà — ignoré'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- ÉTAPE 3 : Contrainte FK fk_paiement_source
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 3 : Contrainte FK fk_paiement_source ===' AS info;
+
+SET @fk_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.TABLE_CONSTRAINTS
+    WHERE TABLE_SCHEMA      = DATABASE()
+      AND TABLE_NAME        = 'paiement'
+      AND CONSTRAINT_NAME   = 'fk_paiement_source'
+      AND CONSTRAINT_TYPE   = 'FOREIGN KEY'
+);
+
+SET @sql = IF(
+    @fk_exists = 0,
+    'ALTER TABLE paiement
+        ADD CONSTRAINT fk_paiement_source
+            FOREIGN KEY (id_paiement_source)
+            REFERENCES paiement(id_paiement)
+            ON DELETE SET NULL
+            ON UPDATE CASCADE',
+    'SELECT ''  ↳ Contrainte fk_paiement_source existe déjà — ignoré'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- ÉTAPE 4 : Index idx_paiement_source
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 4 : Index idx_paiement_source ===' AS info;
+
+SET @idx_exists = (
+    SELECT COUNT(*)
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'paiement'
+      AND INDEX_NAME   = 'idx_paiement_source'
+);
+
+SET @sql = IF(
+    @idx_exists = 0,
+    'CREATE INDEX idx_paiement_source ON paiement(id_paiement_source)',
+    'SELECT ''  ↳ Index idx_paiement_source existe déjà — ignoré'' AS info'
+);
+PREPARE stmt FROM @sql; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- ============================================================================
+-- ÉTAPE 5 : Vérifications
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 5 : Vérifications ===' AS info;
+
+-- 5a. Présence des deux colonnes
+SELECT
+    CASE
+        WHEN COUNT(*) = 2 THEN '✅ Colonnes montant_original et id_paiement_source présentes'
+        WHEN COUNT(*) = 1 THEN '❌ Une colonne manquante — vérifier les étapes 1 et 2'
+        ELSE                    '❌ Les deux colonnes sont absentes — migration échouée'
+    END AS check_colonnes
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME   = 'paiement'
+  AND COLUMN_NAME  IN ('montant_original', 'id_paiement_source');
+
+-- 5b. Type et nullabilité de montant_original
+SELECT
+    CASE
+        WHEN DATA_TYPE = 'decimal'
+         AND IS_NULLABLE = 'NO'  THEN '✅ montant_original : DECIMAL NOT NULL — correct'
+        WHEN DATA_TYPE = 'decimal'
+         AND IS_NULLABLE = 'YES' THEN '⚠️  montant_original : DECIMAL mais toujours NULL — vérifier étape 1'
+        ELSE                          '❌ montant_original : type inattendu'
+    END AS check_montant_original
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME   = 'paiement'
+  AND COLUMN_NAME  = 'montant_original';
+
+-- 5c. Type et nullabilité de id_paiement_source
+SELECT
+    CASE
+        WHEN DATA_TYPE = 'int'
+         AND IS_NULLABLE = 'YES' THEN '✅ id_paiement_source : INT NULL — correct'
+        ELSE                          '❌ id_paiement_source : type ou nullabilité inattendu'
+    END AS check_source
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME   = 'paiement'
+  AND COLUMN_NAME  = 'id_paiement_source';
+
+-- 5d. Contrainte FK
+SELECT
+    CASE
+        WHEN COUNT(*) = 1 THEN '✅ Contrainte FK fk_paiement_source présente'
+        ELSE                    '❌ Contrainte FK fk_paiement_source absente — vérifier étape 3'
+    END AS check_fk
+FROM information_schema.TABLE_CONSTRAINTS
+WHERE TABLE_SCHEMA    = DATABASE()
+  AND TABLE_NAME      = 'paiement'
+  AND CONSTRAINT_NAME = 'fk_paiement_source'
+  AND CONSTRAINT_TYPE = 'FOREIGN KEY';
+
+-- 5e. Index
+SELECT
+    CASE
+        WHEN COUNT(*) >= 1 THEN '✅ Index idx_paiement_source présent'
+        ELSE                     '❌ Index idx_paiement_source absent — vérifier étape 4'
+    END AS check_index
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME   = 'paiement'
+  AND INDEX_NAME   = 'idx_paiement_source';
+
+-- 5f. Cohérence des données : aucun montant_original à zéro ou NULL
+SELECT
+    CASE
+        WHEN COUNT(*) = 0 THEN '✅ Données cohérentes : aucun montant_original à 0 ou NULL'
+        ELSE CONCAT('⚠️  ', COUNT(*), ' paiement(s) avec montant_original à 0 — contrôle manuel recommandé')
+    END AS check_donnees
+FROM paiement
+WHERE montant_original IS NULL
+   OR montant_original = 0;
+
+-- 5g. Intégrité des attributions : toutes les références id_paiement_source pointent vers un paiement existant
+SELECT
+    CASE
+        WHEN COUNT(*) = 0 THEN '✅ Intégrité FK : toutes les références id_paiement_source sont valides'
+        ELSE CONCAT('❌ ', COUNT(*), ' référence(s) orpheline(s) dans id_paiement_source — corriger manuellement')
+    END AS check_integrite_fk
+FROM paiement p
+WHERE p.id_paiement_source IS NOT NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM paiement src WHERE src.id_paiement = p.id_paiement_source
+  );
+
+-- ============================================================================
+-- ÉTAPE 6 : Statistiques
+-- ============================================================================
+
+SELECT '' AS '';
+SELECT '=== ÉTAPE 6 : Statistiques ===' AS info;
+
+SELECT
+    'Total paiements'                                       AS description,
+    COUNT(*)                                                AS valeur
+FROM paiement
+
+UNION ALL
+
+SELECT
+    'Paiements libres (sans facture, sans loyer, sans source)',
+    COUNT(*)
+FROM paiement
+WHERE id_facture          IS NULL
+  AND id_loyer_detail     IS NULL
+  AND id_paiement_source  IS NULL
+
+UNION ALL
+
+SELECT
+    'Attributions issues de paiements libres (id_paiement_source ≠ NULL)',
+    COUNT(*)
+FROM paiement
+WHERE id_paiement_source IS NOT NULL
+
+UNION ALL
+
+SELECT
+    'Paiements avec montant_original > montant_paye (partiellement consommés)',
+    COUNT(*)
+FROM paiement
+WHERE montant_original > montant_paye;
+
+SET FOREIGN_KEY_CHECKS = @OLD_FOREIGN_KEY_CHECKS;
+
+SELECT '' AS '';
+SELECT '============================================================================' AS '';
+SELECT '✅ MIGRATION 010 TERMINÉE'                                                   AS '';
+SELECT '============================================================================' AS '';

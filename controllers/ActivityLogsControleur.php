@@ -31,8 +31,15 @@ class ActivityLogsControleur {
             }
             
             if (!empty($filters['action_type'])) {
-                $whereConditions[] = "action_type = ?";
-                $params[] = $filters['action_type'];
+                $types = array_map('trim', explode(',', $filters['action_type']));
+                if (count($types) === 1) {
+                    $whereConditions[] = "action_type = ?";
+                    $params[] = $types[0];
+                } else {
+                    $placeholders = implode(',', array_fill(0, count($types), '?'));
+                    $whereConditions[] = "action_type IN ({$placeholders})";
+                    foreach ($types as $t) { $params[] = $t; }
+                }
             }
             
             if (!empty($filters['severity'])) {
@@ -114,8 +121,15 @@ class ActivityLogsControleur {
             }
             
             if (!empty($filters['action_type'])) {
-                $whereConditions[] = "action_type = ?";
-                $params[] = $filters['action_type'];
+                $types = array_map('trim', explode(',', $filters['action_type']));
+                if (count($types) === 1) {
+                    $whereConditions[] = "action_type = ?";
+                    $params[] = $types[0];
+                } else {
+                    $placeholders = implode(',', array_fill(0, count($types), '?'));
+                    $whereConditions[] = "action_type IN ({$placeholders})";
+                    foreach ($types as $t) { $params[] = $t; }
+                }
             }
             
             if (!empty($filters['severity'])) {

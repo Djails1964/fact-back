@@ -1,0 +1,354 @@
+-- ============================================================================
+-- MIGRATION : 007_loyers_structure.sql
+-- DESCRIPTION : Ajout de la gestion des loyers
+-- DATE : 2025-02-10
+-- ============================================================================
+-- OBJECTIF :
+-- 1. Modifier la table CLIENT pour marquer les clients avec loyer
+-- 2. Modifier la table FACTURE pour supporter les loyers (type spécial)
+-- 3. Créer la table LOYER_DETAIL pour les montants mensuels variables
+-- 4. Créer la table NUMEROTATION_LOYER pour la séquence LOY-XXX.YYYY
+-- ============================================================================
+
+SET NAMES utf8mb4;
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- ============================================================================
+-- ÉTAPE 1 : Modifier la table CLIENT
+-- ============================================================================
+SELECT '=== MODIFICATION TABLE CLIENT ===' as info;
+
+-- Ajouter le champ a_loyer si non existant
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'client' 
+    AND COLUMN_NAME = 'a_loyer'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `client` ADD COLUMN `a_loyer` TINYINT(1) DEFAULT 0 COMMENT ''Client avec loyer actif'' AFTER `email`',
+    'SELECT "Colonne a_loyer existe déjà dans client" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Créer l'index si non existant
+SET @idx_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.STATISTICS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'client' 
+    AND INDEX_NAME = 'idx_client_loyer'
+);
+
+SET @sql = IF(@idx_exists = 0,
+    'CREATE INDEX `idx_client_loyer` ON `client`(`a_loyer`)',
+    'SELECT "Index idx_client_loyer existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SELECT 'Table CLIENT modifiée : champ a_loyer ajouté' as status;
+
+-- ============================================================================
+-- ÉTAPE 2 : Modifier la table FACTURE pour les loyers
+-- ============================================================================
+SELECT '=== MODIFICATION TABLE FACTURE ===' as info;
+
+-- Ajouter type_facture
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND COLUMN_NAME = 'type_facture'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `facture` ADD COLUMN `type_facture` VARCHAR(20) DEFAULT ''facture'' COMMENT ''Type: facture, loyer'' AFTER `numero_facture`',
+    'SELECT "Colonne type_facture existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Ajouter periode_debut
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND COLUMN_NAME = 'periode_debut'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `facture` ADD COLUMN `periode_debut` DATE NULL COMMENT ''Date début période (loyers)'' AFTER `date_facture`',
+    'SELECT "Colonne periode_debut existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Ajouter periode_fin
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND COLUMN_NAME = 'periode_fin'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `facture` ADD COLUMN `periode_fin` DATE NULL COMMENT ''Date fin période (loyers)'' AFTER `periode_debut`',
+    'SELECT "Colonne periode_fin existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Ajouter duree_mois
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND COLUMN_NAME = 'duree_mois'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `facture` ADD COLUMN `duree_mois` INT NULL COMMENT ''Durée en mois (loyers)'' AFTER `periode_fin`',
+    'SELECT "Colonne duree_mois existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Ajouter motif_loyer
+SET @col_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.COLUMNS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND COLUMN_NAME = 'motif_loyer'
+);
+
+SET @sql = IF(@col_exists = 0,
+    'ALTER TABLE `facture` ADD COLUMN `motif_loyer` VARCHAR(255) NULL COMMENT ''Motif du loyer (ex: Location d\'\'un cabinet)'' AFTER `duree_mois`',
+    'SELECT "Colonne motif_loyer existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Créer index sur type_facture
+SET @idx_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.STATISTICS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND INDEX_NAME = 'idx_type_facture'
+);
+
+SET @sql = IF(@idx_exists = 0,
+    'CREATE INDEX `idx_type_facture` ON `facture`(`type_facture`)',
+    'SELECT "Index idx_type_facture existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- Créer index sur période
+SET @idx_exists = (
+    SELECT COUNT(*) 
+    FROM information_schema.STATISTICS 
+    WHERE TABLE_SCHEMA = DATABASE() 
+    AND TABLE_NAME = 'facture' 
+    AND INDEX_NAME = 'idx_periode'
+);
+
+SET @sql = IF(@idx_exists = 0,
+    'CREATE INDEX `idx_periode` ON `facture`(`periode_debut`, `periode_fin`)',
+    'SELECT "Index idx_periode existe déjà" as info'
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SELECT 'Table FACTURE modifiée : colonnes loyer ajoutées' as status;
+
+-- ============================================================================
+-- ÉTAPE 3 : Créer la table LOYER_DETAIL
+-- ============================================================================
+SELECT '=== CRÉATION TABLE LOYER_DETAIL ===' as info;
+
+CREATE TABLE IF NOT EXISTS `loyer_detail` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `id_facture` INT NOT NULL COMMENT 'Référence vers facture (type loyer)',
+  `mois` VARCHAR(20) NOT NULL COMMENT 'Nom du mois (janvier, février, etc.)',
+  `numero_mois` TINYINT NOT NULL COMMENT 'Numéro du mois (1-12)',
+  `montant` DECIMAL(10,2) NOT NULL COMMENT 'Montant pour ce mois',
+  INDEX `idx_facture_mois` (`id_facture`, `numero_mois`),
+  CONSTRAINT `fk_loyer_detail_facture` 
+    FOREIGN KEY (`id_facture`) 
+    REFERENCES `facture`(`id_facture`) 
+    ON DELETE CASCADE 
+    ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Détail des montants mensuels pour les loyers';
+
+SELECT 'Table LOYER_DETAIL créée' as status;
+
+-- ============================================================================
+-- ÉTAPE 4 : Créer la table NUMEROTATION_LOYER
+-- ============================================================================
+SELECT '=== CRÉATION TABLE NUMEROTATION_LOYER ===' as info;
+
+CREATE TABLE IF NOT EXISTS `numerotation_loyer` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `annee` YEAR NOT NULL COMMENT 'Année de numérotation',
+  `dernier_numero` INT DEFAULT 0 COMMENT 'Dernier numéro utilisé pour cette année',
+  UNIQUE KEY `unique_annee` (`annee`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='Numérotation séquentielle des loyers par année (LOY-XXX.YYYY)';
+
+SELECT 'Table NUMEROTATION_LOYER créée' as status;
+
+-- Initialiser l'année 2025
+INSERT INTO `numerotation_loyer` (`annee`, `dernier_numero`) 
+VALUES (2025, 0)
+ON DUPLICATE KEY UPDATE `dernier_numero` = `dernier_numero`;
+
+SELECT 'Numérotation 2025 initialisée' as status;
+
+-- ============================================================================
+-- ÉTAPE 5 : Vérification de la structure
+-- ============================================================================
+SELECT '=== VÉRIFICATION STRUCTURE ===' as info;
+
+-- Vérifier les colonnes de la table client
+SELECT 
+    'CLIENT' as TABLE_NAME,
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    COLUMN_DEFAULT,
+    COLUMN_COMMENT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'client'
+AND COLUMN_NAME = 'a_loyer';
+
+-- Vérifier les colonnes ajoutées à facture
+SELECT 
+    'FACTURE' as TABLE_NAME,
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    IS_NULLABLE,
+    COLUMN_DEFAULT,
+    COLUMN_COMMENT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'facture'
+AND COLUMN_NAME IN ('type_facture', 'periode_debut', 'periode_fin', 'duree_mois', 'motif_loyer')
+ORDER BY ORDINAL_POSITION;
+
+-- Vérifier la structure de loyer_detail
+SELECT 
+    'LOYER_DETAIL' as TABLE_NAME,
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    IS_NULLABLE,
+    COLUMN_COMMENT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'loyer_detail'
+ORDER BY ORDINAL_POSITION;
+
+-- Vérifier la structure de numerotation_loyer
+SELECT 
+    'NUMEROTATION_LOYER' as TABLE_NAME,
+    COLUMN_NAME,
+    COLUMN_TYPE,
+    IS_NULLABLE,
+    COLUMN_COMMENT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'numerotation_loyer'
+ORDER BY ORDINAL_POSITION;
+
+-- Vérifier les contraintes FK
+SELECT 
+    TABLE_NAME,
+    CONSTRAINT_NAME,
+    REFERENCED_TABLE_NAME,
+    REFERENCED_COLUMN_NAME
+FROM information_schema.KEY_COLUMN_USAGE
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME IN ('loyer_detail')
+AND REFERENCED_TABLE_NAME IS NOT NULL;
+
+-- Vérifier les index créés
+SELECT 
+    TABLE_NAME,
+    INDEX_NAME,
+    GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) as COLUMNS
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME IN ('client', 'facture')
+AND INDEX_NAME IN ('idx_client_loyer', 'idx_type_facture', 'idx_periode')
+GROUP BY TABLE_NAME, INDEX_NAME;
+
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- ============================================================================
+-- RÉSUMÉ DE LA MIGRATION
+-- ============================================================================
+SELECT '=== MIGRATION 007 TERMINÉE ===' as info;
+
+SELECT CONCAT(
+    'Structure loyers créée :',
+    '\n✅ Table CLIENT : champ a_loyer ajouté',
+    '\n✅ Table FACTURE : colonnes loyer ajoutées (type_facture, periode_debut, periode_fin, duree_mois, motif_loyer)',
+    '\n✅ Table LOYER_DETAIL créée (montants mensuels variables)',
+    '\n✅ Table NUMEROTATION_LOYER créée (numérotation LOY-XXX.YYYY)',
+    '\n✅ Année 2025 initialisée dans numerotation_loyer',
+    '\n',
+    '\nPROCHAINES ÉTAPES :',
+    '\n1. Développer le backend PHP (LoyerControleur, ServiceLoyer)',
+    '\n2. Développer le frontend React (LoyerGestion, LoyerForm)',
+    '\n3. Créer le template PDF (confirmation_loyer.html)'
+) as resume;
+
+-- ============================================================================
+-- NOTES IMPORTANTES
+-- ============================================================================
+-- 
+-- LOYERS = TYPE SPÉCIAL DE FACTURE
+-- - Une facture avec type_facture='loyer' est un loyer
+-- - Elle a des colonnes supplémentaires : periode_debut, periode_fin, duree_mois, motif_loyer
+-- - Les montants mensuels (variables) sont dans loyer_detail
+-- - Numérotation séparée : LOY-001.2025, LOY-002.2025, etc.
+-- 
+-- MARQUAGE CLIENT
+-- - Champ a_loyer=1 pour identifier les clients avec loyer actif
+-- - Utilisé pour filtrer le dropdown dans le formulaire de création
+-- 
+-- MONTANTS MENSUELS VARIABLES
+-- - Table loyer_detail contient un enregistrement par mois
+-- - Exemple : 12 lignes pour un loyer annuel avec montants différents
+-- - Le total de facture.montant_total = SUM(loyer_detail.montant)
+-- 
+-- NUMÉROTATION
+-- - Table numerotation_loyer gère la séquence par année
+-- - Format : LOY-XXX.YYYY (ex: LOY-001.2025)
+-- - Séquence démarre à 1 chaque année
+-- 
+-- COMPATIBILITÉ
+-- - Les factures existantes gardent type_facture='facture' par défaut
+-- - Aucun impact sur les factures classiques
+-- - Les colonnes loyer restent NULL pour les factures normales
+-- 
+-- ============================================================================
