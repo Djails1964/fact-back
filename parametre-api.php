@@ -180,16 +180,17 @@ try {
                 $resultat = $serviceParametre->getTarifsLocationSalle();
                 echo json_encode($resultat);
                 
-            } else if (isset($_GET['groupe_parametre']) && isset($_GET['sGroupe'])) {
+            } else if (isset($_GET['groupe_parametre']) && isset($_GET['sous_groupe_parametre'])) {
                 // Récupérer les paramètres par groupe_parametre et sous-groupe_parametre
                 $groupe_parametre = $_GET['groupe_parametre'];
-                $sous_groupe_parametre = $_GET['sGroupe'];
+                $sous_groupe_parametre = $_GET['sous_groupe_parametre'];
                 
                 if (is_dev_mode()) {
                     error_log("parametre-api - GET paramètres par sous-groupe_parametre: $groupe_parametre/$sous_groupe_parametre (user: $userId)");
                 }
                 
                 $resultat = $serviceParametre->getParametresParSousGroupe($groupe_parametre, $sous_groupe_parametre);
+                error_log("parametre-api - Résultat paramètres par sous-groupe_parametre: " . json_encode($resultat, JSON_PRETTY_PRINT));
                 echo json_encode($resultat);
                 
             } else if (isset($_GET['groupe_parametre']) && !isset($_GET['nom_parametre'])) {
@@ -225,7 +226,7 @@ try {
                 // Récupérer un paramètre spécifique avec groupe_parametre obligatoire
                 $nom_parametre = $_GET['nom_parametre'];
                 $groupe_parametre = $_GET['groupe_parametre'];
-                $sous_groupe_parametre = isset($_GET['sGroupe']) ? $_GET['sGroupe'] : null;
+                $sous_groupe_parametre = isset($_GET['sous_groupe_parametre']) ? $_GET['sous_groupe_parametre'] : null;
                 $categorie = isset($_GET['categorie']) ? $_GET['categorie'] : null;
                 $annee_parametre = isset($_GET['annee_parametre']) ? intval($_GET['annee_parametre']) : null;
                 

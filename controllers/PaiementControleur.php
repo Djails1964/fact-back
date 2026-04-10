@@ -165,7 +165,7 @@ class PaiementControleur
 
             if ($id_facture) {
                 // Vérifier que la facture existe
-                $sqlFacture = "SELECT id_facture, montant_total, ristourne, montant_paye_total, id_client as facture_client_id 
+                $sqlFacture = "SELECT id_facture, montant_total, ristourne, montant_paye_total, id_client as facture_id_client 
                               FROM facture WHERE id_facture = ?";
                 $stmtFacture = $conn->prepare($sqlFacture);
                 $stmtFacture->execute([$id_facture]);
@@ -176,7 +176,7 @@ class PaiementControleur
                 }
 
                 // Vérifier cohérence client ↔ facture
-                if ((int)$facture['facture_client_id'] !== $id_client) {
+                if ((int)$facture['facture_id_client'] !== $id_client) {
                     throw new Exception('La facture n\'appartient pas au client sélectionné');
                 }
 
@@ -203,7 +203,7 @@ class PaiementControleur
             if ($id_loyer) {
                 // Vérifier que le loyer existe et appartient au client
                 $stmtLoyer = $conn->prepare(
-                    "SELECT id_loyer, id_client AS loyer_client_id FROM loyer WHERE id_loyer = ?"
+                    "SELECT id_loyer, id_client AS loyer_id_client FROM loyer WHERE id_loyer = ?"
                 );
                 $stmtLoyer->execute([$id_loyer]);
                 $loyer = $stmtLoyer->fetch(PDO::FETCH_ASSOC);
@@ -211,7 +211,7 @@ class PaiementControleur
                 if (!$loyer) {
                     throw new Exception('Loyer non trouvé');
                 }
-                if ((int)$loyer['loyer_client_id'] !== $id_client) {
+                if ((int)$loyer['loyer_id_client'] !== $id_client) {
                     throw new Exception("Le loyer n'appartient pas au client sélectionné");
                 }
 

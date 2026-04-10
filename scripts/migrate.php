@@ -41,8 +41,9 @@ if (file_exists($configPath)) {
 // Connexion PDO
 $dsn = "mysql:host=$host;dbname=$dbName;charset=$charset";
 $options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    PDO::ATTR_ERRMODE                  => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE       => PDO::FETCH_ASSOC,
+    PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
 ];
 
 try {
@@ -55,11 +56,9 @@ try {
 function displayResults($results) {
     if (empty($results)) return;
     
-    // Récupérer les colonnes
     $columns = array_keys($results[0]);
     $widths = [];
     
-    // Calculer les largeurs de colonnes
     foreach ($columns as $col) {
         $widths[$col] = strlen($col);
     }
@@ -69,18 +68,16 @@ function displayResults($results) {
         }
     }
     
-    // Afficher l'en-tête
     echo "\n";
     $headerLine = '';
     $separatorLine = '';
     foreach ($columns as $col) {
-        $headerLine .= str_pad($col, $widths[$col] + 2);
+        $headerLine    .= str_pad($col, $widths[$col] + 2);
         $separatorLine .= str_repeat('-', $widths[$col] + 2);
     }
     echo $headerLine . "\n";
     echo $separatorLine . "\n";
     
-    // Afficher les données
     foreach ($results as $row) {
         $dataLine = '';
         foreach ($columns as $col) {
@@ -90,10 +87,7 @@ function displayResults($results) {
     }
     echo "\n";
     
-    // Forcer l'affichage immédiat
-    if (ob_get_level() > 0) {
-        ob_flush();
-    }
+    if (ob_get_level() > 0) ob_flush();
     flush();
 }
 
@@ -107,23 +101,33 @@ function executeStatement($pdo, $query) {
     if (preg_match('/^\s*$/', $query)) return;
     
     try {
-        // Détecter si c'est un SELECT
+        // Détecter si c'est un SELECT (pour affichage)
         $isSelect = preg_match('/^\s*SELECT\s+/i', $query);
-        
+
+        // On passe TOUT par query() — jamais exec() — pour garantir
+        // que chaque résultat (y compris ceux produits par EXECUTE stmt)
+        // est correctement consommé. exec() ne consomme pas les curseurs
+        // laissés par EXECUTE quand le fallback IF() est un SELECT.
+        $stmt = $pdo->query($query);
+
+        if ($stmt === false) return;
+
         if ($isSelect) {
-            // Exécuter le SELECT et récupérer les résultats
-            $stmt = $pdo->query($query);
             $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
             if (!empty($results)) {
                 displayResults($results);
             }
         } else {
-            // Pour ALTER, UPDATE, INSERT, DELETE, etc.
-            $pdo->exec($query);
+            // Consommer tout résultat résiduel (ex: EXECUTE stmt → SELECT fallback)
+            // nextRowset() retourne false quand il n'y a plus rien → boucle propre
+            do {
+                $stmt->fetchAll();
+            } while ($stmt->nextRowset());
         }
+
+        $stmt->closeCursor();
+
     } catch (Exception $e) {
-        // En cas d'erreur, afficher le message
         echo "ERREUR: " . $e->getMessage() . "\n\n";
     }
 }
@@ -149,37 +153,27 @@ foreach ($files as $file) {
         
         try {
             // ── Découpage SQL avec support des blocs BEGIN...END (triggers) ──────
-            //
-            // Stratégie : détecter DELIMITER $$ pour identifier les blocs trigger.
-            // Entre DELIMITER $$ et DELIMITER ; → on accumule tout jusqu'au $$ final
-            // sans découper sur les ; internes (END IF; END; etc.)
-            // En dehors → découpage classique sur ;
-            
-            $statements   = [];
-            $buffer       = '';
-            $inTrigger    = false;   // true quand on est entre DELIMITER $$ et DELIMITER ;
-            $lines         = explode("\n", $sql);
+            $statements = [];
+            $buffer     = '';
+            $inTrigger  = false;
+            $lines      = explode("\n", $sql);
 
             foreach ($lines as $line) {
                 $trimmed = trim($line);
 
-                // Ignorer les lignes vides et commentaires en dehors d'un bloc
                 if (!$inTrigger && (empty($trimmed) || preg_match('/^--/', $trimmed))) {
                     continue;
                 }
 
-                // Détecter DELIMITER $$ → début d'un bloc trigger
                 if (preg_match('/^DELIMITER\s+\$\$/i', $trimmed)) {
                     $inTrigger = true;
                     $buffer    = '';
                     continue;
                 }
 
-                // Détecter DELIMITER ; → fin d'un bloc trigger
                 if (preg_match('/^DELIMITER\s+;/i', $trimmed)) {
                     $inTrigger = false;
                     if (!empty(trim($buffer))) {
-                        // Remplacer le $$ terminal par rien (déjà terminé par END)
                         $statements[] = rtrim(str_replace('$$', '', $buffer)) . "\n";
                     }
                     $buffer = '';
@@ -187,11 +181,8 @@ foreach ($files as $file) {
                 }
 
                 if ($inTrigger) {
-                    // À l'intérieur d'un bloc trigger : accumuler sans découper
-                    // Remplacer $$ par ; pour que le trigger soit syntaxiquement correct
                     $buffer .= str_replace('$$', ';', $line) . "\n";
                 } else {
-                    // Hors bloc trigger : découpage classique sur ;
                     $buffer .= $line . "\n";
                     if (preg_match('/;\s*$/', $trimmed)) {
                         if (!empty(trim($buffer))) {
@@ -202,12 +193,10 @@ foreach ($files as $file) {
                 }
             }
 
-            // Ajouter la dernière requête si elle n'est pas vide
             if (!empty(trim($buffer))) {
                 $statements[] = $buffer;
             }
             
-            // Exécuter chaque requête
             foreach ($statements as $statement) {
                 executeStatement($pdo, $statement);
             }

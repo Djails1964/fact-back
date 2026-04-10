@@ -396,7 +396,8 @@ try {
                             break;
                             
                         case 'createTarifSpecial':
-                            if (!isset($data['id_client']) || !isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['prix'])) {
+                            error_log('tarif-api - createTarifSpecial - données reçues: ' . json_encode($data));
+                            if (!isset($data['id_client']) || !isset($data['id_service']) || !isset($data['id_unite']) || !isset($data['prix_tarif_special'])) {
                                 throw new Exception('Données incomplètes pour la création d\'un tarif spécial');
                             }
                             $resultat = $serviceTarif->createTarifSpecial($data);

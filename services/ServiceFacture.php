@@ -48,6 +48,19 @@ class ServiceFacture {
                 error_log("ServiceFacture - creerFacture - Démarrage de la transaction pour création de facture");
                 error_log("ServiceFacture - creerFacture - Données de la facture: " . print_r($data, true));
             }
+
+            // ✅ Allouer le numéro de facture atomiquement (SELECT FOR UPDATE + UPDATE)
+            //    L'année est déduite de date_facture — indépendamment de l'année du loyer.
+            //    Le frontend ne fournit plus numero_facture ; on l'ignore s'il est présent.
+            unset($data['numero_facture']);
+            $anneeFacture = (int) date('Y', strtotime($data['date_facture']));
+            $numeroFacture = FactureControleur::allouerNumeroFacture($this->conn, $anneeFacture);
+            $data['numero_facture'] = $numeroFacture;
+
+            if (is_dev_mode()) {
+                error_log("ServiceFacture - creerFacture - Numéro alloué: {$numeroFacture} (année {$anneeFacture})");
+            }
+
             // Étape 1: Créer la facture
             $resultatFacture = FactureControleur::ajouterFacture($this->conn, $data);
             if (is_dev_mode()) {

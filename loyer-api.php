@@ -198,6 +198,19 @@ function handlePut($serviceLoyer) {
             echo json_encode(['success' => false, 'message' => 'Données JSON invalides']);
             return;
         }
+
+        // ✅ Route spéciale : lier une facture à ce loyer
+        // PUT /loyer-api.php?id=X&action=lier_facture  { id_facture: Y }
+        if (isset($_GET['action']) && $_GET['action'] === 'lier_facture') {
+            if (empty($data['id_facture'])) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'message' => 'id_facture requis']);
+                return;
+            }
+            $resultat = $serviceLoyer->lierFacture($id, (int)$data['id_facture']);
+            echo json_encode($resultat);
+            return;
+        }
         
         $resultat = $serviceLoyer->modifierLoyer($id, $data);
         

@@ -237,6 +237,38 @@ class ServiceLoyer {
     }
 
     /**
+     * Lie une facture générée à ce loyer.
+     * Met à jour loyer.id_facture — l'état de paiement sera ensuite
+     * calculé depuis les paiements de la facture liée (via v_loyers_complets).
+     *
+     * @param int $id_loyer
+     * @param int $id_facture
+     * @return array {success, message}
+     */
+    public function lierFacture($id_loyer, $id_facture) {
+        $user = $this->getCurrentUser();
+        try {
+            $resultat = LoyerControleur::lierFacture($this->conn, $id_loyer, $id_facture);
+
+            $this->logger->log([
+                'user_id'     => $user['id'],
+                'user_name'   => $user['name'],
+                'action_type' => 'loyer_update',
+                'entity_type' => 'loyer',
+                'entity_id'   => $id_loyer,
+                'description' => "Liaison loyer #$id_loyer → facture #$id_facture",
+                'details'     => ['id_loyer' => $id_loyer, 'id_facture' => $id_facture],
+                'severity'   => ActivityLogsConstants::SEVERITY_INFO,
+            ]);
+
+            return $resultat;
+        } catch (Exception $e) {
+            error_log("ServiceLoyer::lierFacture - Erreur: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
      * Liste tous les loyers
      * 
      * @param array $filtres Filtres optionnels

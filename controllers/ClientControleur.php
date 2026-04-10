@@ -18,7 +18,6 @@ class ClientControleur
                 localite,
                 telephone,
                 email,
-                a_loyer,
                 estTherapeute,
                 -- État de paiement agrégé sur tous les loyers actifs du client
                 (
@@ -105,8 +104,7 @@ class ClientControleur
                         localite,
                         telephone,
                         email,
-                        a_loyer,
-                        estTherapeute
+                                estTherapeute
                     FROM
                         client
                     WHERE 
@@ -152,8 +150,6 @@ class ClientControleur
         $telephone = isset($dataArray['telephone']) ? $dataArray['telephone'] : '';
         $email = isset($dataArray['email']) ? $dataArray['email'] : '';
         $estTherapeute = isset($dataArray['estTherapeute']) ? ($dataArray['estTherapeute'] ? 1 : 0) : 0;
-        $a_loyer = isset($dataArray['a_loyer']) ? ($dataArray['a_loyer'] ? 1 : 0) : 0;
-
         // Validation du code_postal (seulement si pas null)
         error_log("ClientControleur - ajouterClient - Validation du code postal: " . ($code_postal ?? 'NULL'));
         if ($code_postal !== null && (!is_numeric($code_postal) || strlen($code_postal) > 5)) {
@@ -162,16 +158,13 @@ class ClientControleur
 
         try {
             // Préparation de la requête d'insertion
-            $sql = "INSERT INTO client (titre, nom, prenom, rue, numero, code_postal, localite, telephone, email, estTherapeute, a_loyer) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO client (titre, nom, prenom, rue, numero, code_postal, localite, telephone, email, estTherapeute) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
 
             error_log("ClientControleur - ajouterClient - Préparation de la requête d'insertion : $sql");
-            error_log("ClientControleur - ajouterClient - Valeurs: '$titre', '$nom', '$prenom', '$rue', '$numero', " .
-                ($code_postal ?? 'NULL') . ", '$localite', '$telephone', '$email', $estTherapeute, $a_loyer");
-
             // Exécution de la requête
-            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute, $a_loyer]);
+            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute]);
 
             // Récupérer l'ID du client nouvellement inséré
             $id_client = $conn->lastInsertId();
@@ -217,8 +210,6 @@ class ClientControleur
             $telephone = isset($dataArray['telephone']) ? $dataArray['telephone'] : '';
             $email = isset($dataArray['email']) ? $dataArray['email'] : '';
             $estTherapeute = isset($dataArray['estTherapeute']) ? ($dataArray['estTherapeute'] ? 1 : 0) : 0;
-            $a_loyer = isset($dataArray['a_loyer']) ? ($dataArray['a_loyer'] ? 1 : 0) : 0;
-
             // Validation du code_postal (seulement si pas null)
             if ($code_postal !== null && (!is_numeric($code_postal) || strlen($code_postal) > 5)) {
                 throw new Exception('Code postal invalide');
@@ -227,12 +218,12 @@ class ClientControleur
             // Préparation de la requête de mise à jour
             $sql = "UPDATE client 
                     SET titre = ?, nom = ?, prenom = ?, rue = ?, numero = ?, 
-                        code_postal = ?, localite = ?, telephone = ?, email = ?, estTherapeute = ?, a_loyer = ? 
+                        code_postal = ?, localite = ?, telephone = ?, email = ?, estTherapeute = ? 
                     WHERE id = ?";
             $stmt = $conn->prepare($sql);
 
             // Exécution de la requête
-            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute, $a_loyer, $id_client]);
+            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute, $id_client]);
 
             return [
                 "message" => "Client mis à jour avec succès",

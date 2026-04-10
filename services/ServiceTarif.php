@@ -238,6 +238,7 @@ class ServiceTarif {
             return $this->executeWithTransaction(function() use ($id, $data) {
                 try {
                     $result = $this->uniteControleur->update($id, $data);
+                    error_log("ServiceTarif - updateUnite pour l'unité #id: ". $id . " avec data: " . json_encode($data) . " - résultat: " . json_encode($result)); 
                     return $result 
                         ? ['success' => true, 'message' => 'Unité mise à jour avec succès']
                         : ['success' => false, 'message' => 'Aucune modification effectuée ou unité non trouvée'];
@@ -478,7 +479,8 @@ class ServiceTarif {
                         'nom_unite' => $rel['nom_unite'],
                         'description_unite' => $rel['description_unite'],
                         'is_default_pour_service' => (bool)$rel['is_default'],
-                        'actif' => isset($rel['actif']) ? (bool)$rel['actif'] : true
+                        'actif' => isset($rel['actif']) ? (bool)$rel['actif'] : true,
+                        'permet_multiplicateur' => isset($rel['permet_multiplicateur']) ? (bool)$rel['permet_multiplicateur'] : false
                     ];
                 }, $unitesLiees);
                 
@@ -821,7 +823,7 @@ class ServiceTarif {
                 try {
                     // Valider les données
                     if (!isset($data['id_client']) || !isset($data['id_service']) || 
-                        !isset($data['id_unite']) || !isset($data['prix'])) {
+                        !isset($data['id_unite']) || !isset($data['prix_tarif_special'])) {
                         return [
                             'success' => false,
                             'message' => 'Données de tarif spécial incomplètes'
@@ -866,6 +868,7 @@ class ServiceTarif {
                     }
                     
                     $result = $this->tarifControleur->updateTarifSpecial($id, $data);
+                    error_log("ServiceTarif - updateTarifSpecial pour le tarif spécial #id: ". $id . " avec data: " . json_encode($data) . " - résultat: " . json_encode($result));
                     return $result 
                         ? ['success' => true, 'message' => 'Tarif spécial mis à jour avec succès']
                         : ['success' => false, 'message' => 'Aucune modification effectuée ou tarif spécial non trouvé'];

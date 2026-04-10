@@ -190,16 +190,6 @@ try {
                 break;
             }
 
-            // Paramètres (prochainNumeroFacture)
-            if (isset($_GET['prochainNumeroFacture'])) {
-                if (is_dev_mode()) {
-                    error_log("facture-api - GET prochain numéro facture (user: $userId)");
-                }
-                $resultat = $serviceFacture->getProchainNumeroFacture($_GET['prochainNumeroFacture']);
-                echo json_encode($resultat);
-                break;
-            }
-
             // Récupérer l'URL de visualisation d'une facture
             if (isset($_GET['getUrl']) && isset($_GET['id'])) {
                 if (is_dev_mode()) {
@@ -213,16 +203,16 @@ try {
             // ✅ NOUVEAU: Factures d'un client spécifique
             // GET /api/facture-api.php?id_client=123
             if (isset($_GET['id_client'])) {
-                $idClient = intval($_GET['id_client']);
+                $id_client = intval($_GET['id_client']);
                 
                 if (is_dev_mode()) {
-                    error_log("facture-api - GET factures du client ID: $idClient (user: $userId)");
+                    error_log("facture-api - GET factures du client ID: $id_client (user: $userId)");
                 }
                 
-                $resultat = $serviceFacture->getFacturesClient($idClient);
+                $resultat = $serviceFacture->getFacturesClient($id_client);
                 
                 if (is_dev_mode()) {
-                    error_log("facture-api - Factures du client #$idClient: " . 
+                    error_log("facture-api - Factures du client #$id_client: " . 
                               (isset($resultat['factures']) ? count($resultat['factures']) : 'N/A') . " factures");
                 }
                 
@@ -349,6 +339,11 @@ try {
                 error_log("facture-api - POST création nouvelle facture (user: $userId)");
                 error_log("facture-api - Données reçues pour création: " . json_encode($data));
             }
+
+            // ✅ Sécurité : ignorer tout numero_facture envoyé par le frontend.
+            //    La numérotation est exclusivement gérée par ServiceFacture::creerFacture()
+            //    via FactureControleur::allouerNumeroFacture() dans une transaction atomique.
+            unset($data['numero_facture']);
             
             $resultat = $serviceFacture->creerFacture($data);
             echo json_encode($resultat);

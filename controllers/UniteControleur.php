@@ -18,7 +18,9 @@ class UniteControleur {
                     id as id_unite, 
                     code as code_unite, 
                     nom as nom_unite, 
-                    description as description_unite 
+                    description as description_unite,
+                    abreviation as abreviation_unite,
+                    permet_multiplicateur
                 FROM unites ORDER BY nom";
         return $this->fetchAll($sql);
     }
@@ -28,7 +30,9 @@ class UniteControleur {
                     id as id_unite, 
                     code as code_unite, 
                     nom as nom_unite, 
-                    description as description_unite 
+                    description as description_unite,
+                    abreviation as abreviation_unite,
+                    permet_multiplicateur
                 FROM unites WHERE id = ?";
         return $this->fetchOne($sql, [$id_unite]);
     }
@@ -38,7 +42,10 @@ class UniteControleur {
                     u.id as id_unite, 
                     u.code as code_unite, 
                     u.nom as nom_unite, 
-                    u.description as description_unite 
+                    u.description as description_unite,
+                    u.abreviation as abreviation_unite,
+                    u.permet_multiplicateur,
+                    su.isDefault as is_default_pour_service
                 FROM unites u 
                 JOIN services_unites su ON u.id = su.unite_id 
                 WHERE su.service_id = ? 
@@ -65,7 +72,8 @@ class UniteControleur {
                     su.actif as actif,
                     u.code as code_unite,
                     u.nom as nom_unite,
-                    u.description as description_unite
+                    u.description as description_unite,
+                    u.abreviation as abreviation_unite
                 FROM services_unites su
                 JOIN unites u ON su.unite_id = u.id
                 ORDER BY su.service_id, u.nom";
@@ -84,23 +92,25 @@ class UniteControleur {
     
     public function create(array $data): array {
         
-        $sql = "INSERT INTO unites (code, nom, description) 
-                VALUES (?, ?, ?)";
+        $sql = "INSERT INTO unites (code, nom, description, abreviation) 
+                VALUES (?, ?, ?, ?)";
         
         $this->executeQuery($sql, [
             $data['code_unite'],
             $data['nom_unite'],
-            $data['description_unite'] ?? null
+            $data['description_unite'] ?? null,
+            $data['abreviation_unite'] ?? null
         ]);
         
         $id_unite = $this->getLastInsertId();
         
         // Construction de l'objet a partir des donnees deja disponibles
         $objet = [
-            'id_unite' => $id_unite,
-            'code_unite' => $data['code_unite'],
-            'nom_unite' => $data['nom_unite'],
-            'description_unite' => $data['description_unite'] ?? null
+            'id_unite'         => $id_unite,
+            'code_unite'       => $data['code_unite'],
+            'nom_unite'        => $data['nom_unite'],
+            'description_unite'=> $data['description_unite'] ?? null,
+            'abreviation_unite' => $data['abreviation_unite'] ?? null
         ];
         
         return [
@@ -127,6 +137,13 @@ class UniteControleur {
         if (isset($data['description_unite']) || isset($data['description'])) {
             $setFields[] = "description = ?";
             $params[] = $data['description_unite'] ?? $data['description'];
+        }
+
+        if (array_key_exists('abreviation_unite', $data)) {
+            $setFields[] = "abreviation = ?";
+            $params[] = ($data['abreviation_unite'] !== '' && $data['abreviation_unite'] !== null)
+                ? substr($data['abreviation_unite'], 0, 2)
+                : null;
         }
         
         if (empty($setFields)) {

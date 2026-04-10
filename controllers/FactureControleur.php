@@ -21,7 +21,9 @@ class FactureControleur {
      */
     public static function listerFactures($conn, $annee = null) {
         try {
-            $sql = "SELECT f.*, c.nom, c.prenom, c.email
+            $sql = "SELECT f.*, c.nom, c.prenom, c.email,
+                    -- ✅ Lien loyer : non null si la facture a été générée depuis un loyer
+                    (SELECT l.id_loyer FROM loyer l WHERE l.id_facture = f.id_facture LIMIT 1) AS id_loyer
                     FROM facture f 
                     JOIN client c ON f.id_client = c.id";
             
@@ -56,7 +58,9 @@ class FactureControleur {
     public static function getFactureParId($conn, $id_facture) {
         try {
             // Récupérer les informations de la facture
-            $sql = "SELECT f.*, c.nom, c.prenom, c.titre, c.rue, c.numero, c.code_postal, c.localite, c.telephone, c.email, c.estTherapeute
+            $sql = "SELECT f.*, c.nom, c.prenom, c.titre, c.rue, c.numero, c.code_postal, c.localite, c.telephone, c.email, c.estTherapeute,
+                    -- ✅ Lien loyer : non null si la facture a été générée depuis un loyer
+                    (SELECT l.id_loyer FROM loyer l WHERE l.id_facture = f.id_facture LIMIT 1) AS id_loyer
                     FROM facture f 
                     JOIN client c ON f.id_client = c.id 
                     WHERE f.id_facture = ?";
@@ -70,20 +74,24 @@ class FactureControleur {
             
             // Récupérer les lignes de la facture
             $sqlLignes = "SELECT 
-                id_ligne,
-                id_facture,
-                no_ordre,
-                description,
-                description_dates,
-                unite,
-                quantite,
-                prix_unitaire,
-                total_ligne,
-                service_id AS id_service,
-                unite_id AS id_unite
-            FROM lignesfacture 
-            WHERE id_facture = ? 
-            ORDER BY no_ordre ASC";
+                lf.id_ligne,
+                lf.id_facture,
+                lf.no_ordre,
+                lf.description,
+                lf.description_dates,
+                lf.unite,
+                lf.quantite,
+                lf.prix_unitaire,
+                lf.total_ligne,
+                lf.service_id AS id_service,
+                lf.unite_id AS id_unite,
+                lf.duree,
+                lf.nb_seances,
+                u.permet_multiplicateur
+            FROM lignesfacture lf
+            LEFT JOIN unites u ON u.id = lf.unite_id
+            WHERE lf.id_facture = ? 
+            ORDER BY lf.no_ordre ASC";
             $stmtLignes = $conn->prepare($sqlLignes);
             $stmtLignes->execute([$id_facture]);
             $lignes = $stmtLignes->fetchAll(PDO::FETCH_ASSOC);
@@ -146,99 +154,135 @@ class FactureControleur {
     }
     
     /**
-     * Ajoute une nouvelle facture et ses lignes
-     * 
-     * @param PDO $conn La connexion à la base de données
-     * @param array $data Les données de la facture
+     * Alloue et incrémente atomiquement le prochain numéro de facture.
+     *
+     * ⚠️  Doit être appelé DANS une transaction ouverte par ServiceFacture.
+     *     Le SELECT ... FOR UPDATE garantit qu'aucun processus concurrent
+     *     ne peut lire le même numéro avant que la transaction soit commitée.
+     *
+     * @param  PDO $conn   Connexion PDO (transaction déjà ouverte)
+     * @param  int $annee  Année déduite de date_facture
+     * @return string      Numéro formaté, ex: "087.2026"
+     * @throws Exception   Si le paramètre n'existe pas pour cette année
+     */
+    public static function allouerNumeroFacture($conn, $annee) {
+        // 1. Lire ET verrouiller la ligne pour éviter la concurrence
+        $stmt = $conn->prepare("
+            SELECT id, valeur_parametre
+            FROM   parametres
+            WHERE  nom_parametre          = 'Prochain Numéro Facture'
+              AND  groupe_parametre       = 'Facture'
+              AND  sous_groupe_parametre  = 'Numéro'
+              AND  annee_parametre        = ?
+            LIMIT 1
+            FOR UPDATE
+        ");
+        $stmt->execute([$annee]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            throw new Exception(
+                "Paramètre 'Prochain Numéro Facture' introuvable pour l'année {$annee}. " .
+                "Configurez-le dans les paramètres avant de générer des factures."
+            );
+        }
+
+        $sequence = (int) $row['valeur_parametre'];
+        $numero   = str_pad($sequence, 3, '0', STR_PAD_LEFT) . '.' . $annee;
+
+        // 2. Incrémenter immédiatement dans la même transaction
+        $upd = $conn->prepare("UPDATE parametres SET valeur_parametre = ? WHERE id = ?");
+        $upd->execute([$sequence + 1, $row['id']]);
+
+        if (is_dev_mode()) {
+            error_log("FactureControleur::allouerNumeroFacture - Numéro alloué: {$numero} (prochain: " . ($sequence + 1) . ")");
+        }
+
+        return $numero;
+    }
+
+    /**
+     * Ajoute une nouvelle facture et ses lignes.
+     * Le numero_facture est alloué en amont par ServiceFacture via allouerNumeroFacture().
+     *
+     * @param PDO   $conn La connexion à la base de données
+     * @param array $data Les données de la facture (numero_facture déjà présent)
      * @return array Résultat de l'opération
      * @throws Exception En cas de données invalides ou d'erreur
      */
     public static function ajouterFacture($conn, $data) {
-        // Validation des données
         if (is_dev_mode()) {
             error_log("Facturecontroleur - ajouterFacture - Démarrage de l'ajout de facture");
-            error_log("Facturecontroleur - ajouterFacture - Vérification des données de la facture: " . print_r($data, true));
+            error_log("Facturecontroleur - ajouterFacture - Données: " . print_r($data, true));
         }
-        if (!isset($data['numero_facture']) || !isset($data['date_facture']) || 
-            !isset($data['id_client']) || 
+
+        // numero_facture est injecté par ServiceFacture::creerFacture via allouerNumeroFacture()
+        if (!isset($data['numero_facture']) || !isset($data['date_facture']) ||
+            !isset($data['id_client']) ||
             !isset($data['lignes']) || !is_array($data['lignes'])) {
             throw new Exception('Données de facture incomplètes ou invalides');
         }
 
         try {
-            // Calculer le montant total avec la méthode commune
-            $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
+            $ristourne    = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
-            
-            // Calculer le montant brut (montant_total + ristourne)
-            $montantBrut = $montantTotal + $ristourne;
-            
-            // Insérer la facture
-            $dateEdition = date('Y-m-d H:i:s'); // Date actuelle
-            
-            $stmt = $conn->prepare("INSERT INTO facture 
-                (numero_facture, date_facture, montant_total, montant_brut, id_client, date_edition, ristourne) 
+            $montantBrut  = $montantTotal + $ristourne;
+            $dateEdition  = date('Y-m-d H:i:s');
+
+            $stmt = $conn->prepare("INSERT INTO facture
+                (numero_facture, date_facture, montant_total, montant_brut, id_client, date_edition, ristourne)
                 VALUES (?, ?, ?, ?, ?, ?, ?)");
-            
             $stmt->execute([
                 $data['numero_facture'],
                 $data['date_facture'],
-                $montantTotal, // Montant recalculé (net)
-                $montantBrut, // Montant brut (total + ristourne)
+                $montantTotal,
+                $montantBrut,
                 $data['id_client'],
                 $dateEdition,
-                $ristourne
+                $ristourne,
             ]);
-            
-            // Récupérer l'ID de la facture créée
+
             $id_facture = $conn->lastInsertId();
-            
-            // Insérer les lignes de facture
-            $stmtLignes = $conn->prepare("INSERT INTO lignesfacture 
-                (id_facture, description, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            
-            // Parcourir les lignes
+
+            $stmtLignes = $conn->prepare("INSERT INTO lignesfacture
+                (id_facture, description, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates, duree, nb_seances)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
             foreach ($data['lignes'] as $index => $ligne) {
-                if (!isset($ligne['description']) ||  
-                    !isset($ligne['quantite']) || !isset($ligne['prix_unitaire']) || 
-                    !isset($ligne['total_ligne']) ||
-                    !isset($ligne['id_service']) || !isset($ligne['id_unite'])) {
+                if (!isset($ligne['description'])  ||
+                    !isset($ligne['quantite'])      || !isset($ligne['prix_unitaire']) ||
+                    !isset($ligne['total_ligne'])   ||
+                    !isset($ligne['id_service'])    || !isset($ligne['id_unite'])) {
                     throw new Exception('Données de ligne de facture incomplètes');
                 }
-                
-                // Utiliser l'index comme ordre si non fourni
-                $noOrdre = isset($ligne['no_ordre']) ? $ligne['no_ordre'] : $index + 1;
-
+                $noOrdre = $ligne['no_ordre'] ?? $index + 1;
                 $stmtLignes->execute([
                     $id_facture,
                     $ligne['description'],
-                    // $ligne['unite'] ?? null,
                     $ligne['quantite'],
                     $ligne['prix_unitaire'],
                     $ligne['total_ligne'],
                     $ligne['id_service'],
                     $ligne['id_unite'],
                     $noOrdre,
-                    $ligne['description_dates'] ?? null // Nouveau champ
+                    $ligne['description_dates'] ?? null,
+                    $ligne['duree'] ?? null,
+                    isset($ligne['nb_seances']) ? (int)$ligne['nb_seances'] : null,
                 ]);
             }
 
-            // Mettre à jour le prochain numéro de facture
-            self::mettreAJourProchainNumero($conn, $data['numero_facture']);
-
             return [
-                'success' => true,
-                'message' => 'Facture créée avec succès',
-                'id_facture' => $id_facture,
-                'numero_facture' => $data['numero_facture']
+                'success'        => true,
+                'message'        => 'Facture créée avec succès',
+                'id_facture'     => $id_facture,
+                'numero_facture' => $data['numero_facture'],
             ];
-            
-        } catch(PDOException $e) {
-           error_log("Erreur SQL: " . $e->getMessage());
+
+        } catch (PDOException $e) {
+            error_log("Erreur SQL: " . $e->getMessage());
             throw new Exception('Erreur lors de l\'enregistrement de la facture: ' . $e->getMessage());
         }
-    }
+    } // fin ajouterFacture
 
     /**
      * Modifie une facture existante
@@ -303,6 +347,18 @@ class FactureControleur {
                 throw new Exception('Facture non trouvée');
             }
 
+            // ✅ Bloquer la modification directe si la facture est liée à un loyer
+            $stmtLoyer = $conn->prepare(
+                "SELECT id_loyer FROM loyer WHERE id_facture = ? LIMIT 1"
+            );
+            $stmtLoyer->execute([$id_facture]);
+            if ($stmtLoyer->rowCount() > 0) {
+                throw new Exception(
+                    'Cette facture est liée à un loyer et ne peut pas être modifiée directement. ' .
+                    'Modifiez le loyer pour mettre à jour la facture.'
+                );
+            }
+
             // Calculer le montant total avec la méthode commune
             $ristourne = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
@@ -336,8 +392,8 @@ class FactureControleur {
             
             // Insérer les nouvelles lignes de facture
             $stmtLignes = $conn->prepare("INSERT INTO lignesfacture 
-                (id_facture, description, unite, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                (id_facture, description, unite, quantite, prix_unitaire, total_ligne, service_id, unite_id, no_ordre, description_dates, duree, nb_seances) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             
             foreach ($data['lignes'] as $index => $ligne) {
                 // ✅ CORRECTION: Validation plus robuste des lignes
@@ -369,15 +425,14 @@ class FactureControleur {
                     intval($ligne['id_service']),
                     intval($ligne['id_unite']),
                     $noOrdre,
-                    $descriptionDates
+                    $descriptionDates,
+                    $ligne['duree'] ?? null,
+                    isset($ligne['nb_seances']) ? (int)$ligne['nb_seances'] : null,
                 ]);
             }
 
-            // Mettre à jour le prochain numéro de facture si le numéro a changé
-            $oldData = $checkStmt->fetch(PDO::FETCH_ASSOC);
-            if ($data['numero_facture'] !== $oldData['oldNumero']) {
-                self::mettreAJourProchainNumero($conn, $data['numero_facture']);
-            }
+            // ✅ La modification d'une facture ne génère pas de nouveau numéro —
+            //    le numéro est immuable une fois créé.
 
             return [
                 'success' => true,
@@ -444,6 +499,10 @@ class FactureControleur {
             $stmtLignes = $conn->prepare($sqlLignes);
             $stmtLignes->execute([$id_facture]);
             
+            // ✅ Casser le lien avec le loyer s'il existe (avant suppression pour éviter FK)
+            $conn->prepare("UPDATE loyer SET id_facture = NULL WHERE id_facture = ?")
+                 ->execute([$id_facture]);
+
             // Puis supprimer la facture
             $sqlFacture = "DELETE FROM facture WHERE id_facture = ?";
             $stmtFacture = $conn->prepare($sqlFacture);
@@ -501,6 +560,9 @@ class FactureControleur {
                     $sql = "UPDATE facture SET etat = ?, date_annulation = ? WHERE id_facture = ?";
                     $stmt = $conn->prepare($sql);
                     $stmt->execute([$nouvelEtat, $dateCourante, $id_facture]);
+                    // ✅ Casser le lien avec le loyer — la facture annulée ne bloque plus le loyer
+                    $conn->prepare("UPDATE loyer SET id_facture = NULL WHERE id_facture = ?")
+                         ->execute([$id_facture]);
                     break;
                     
                 case 'Envoyée':
@@ -799,42 +861,6 @@ class FactureControleur {
         $montantNet = max(0, $montantBrut - floatval($ristourne));
         
         return $montantNet;
-    }
-
-    /**
-     * Met à jour le prochain numéro de facture dans les paramètres
-     * 
-     * @param PDO $conn La connexion à la base de données
-     * @param string $numeroFacture Numéro de facture actuel au format NNN.YYYY
-     * @throws Exception En cas d'erreur
-     */
-    private static function mettreAJourProchainNumero($conn, $numero_facture) {
-        // Extraire l'année et le numéro de facture
-        $numero_facture_parts = explode('.', $numero_facture);
-        if (count($numero_facture_parts) != 2) {
-            throw new Exception('Format de numéro de facture invalide');
-        }
-        
-        $nom_parametre = 'Prochain Numéro Facture';
-        $numero_actuel = intval($numero_facture_parts[0]);
-        $annee_parametre = intval($numero_facture_parts[1]);
-        $prochain_numero_facture = $numero_actuel + 1;
-        
-        // Créer les données pour le paramètre
-        $paramData = [
-            'nom_parametre' => $nom_parametre,
-            'valeur_parametre' => $prochain_numero_facture,
-            'annee_parametre' => $annee_parametre,
-            'groupe_parametre' => 'Facture',
-            'sous_groupe_parametre' => 'Numéro'
-        ];
-        
-        // Appeler la fonction d'enregistrement des paramètres
-        $resultatParams = ParametreControleur::enregistrerParametres($conn, $paramData);
-        
-        if (!$resultatParams['success']) {
-            throw new Exception('Erreur lors de la mise à jour du prochain numéro de facture');
-        }
     }
 }
 ?>

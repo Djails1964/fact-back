@@ -39,6 +39,9 @@ class LoyerControleur {
                 duree_mois,
                 motif,
                 afficher_dates_paiement,
+                id_service,
+                id_facture,
+                facture_etat,
                 description,
                 montant_total           AS loyer_montant_total,
                 montant_mensuel_moyen,
@@ -117,6 +120,9 @@ class LoyerControleur {
                 duree_mois,
                 motif,
                 afficher_dates_paiement,
+                id_service,
+                id_facture,
+                facture_etat,
                 description,
                 montant_total           AS loyer_montant_total,
                 montant_mensuel_moyen,
@@ -142,22 +148,35 @@ class LoyerControleur {
                 throw new Exception('Loyer non trouvé');
             }
             
-            // Récupérer les détails mensuels
+            // Récupérer les détails mensuels avec infos unité et service
             // ✅ montant = montant DÛ ORIGINAL (ne jamais modifier ce champ lors d'un paiement)
+            // ✅ JOIN services_unites limité au service du loyer parent pour éviter les doublons
             $sqlDetails = "SELECT
-                                id              AS id_loyer_detail,
-                                id_loyer,
-                                mois            AS loyer_mois,
-                                numero_mois     AS loyer_numero_mois,
-                                annee           AS loyer_annee,
-                                montant         AS loyer_detail_montant,
-                                est_paye,
-                                date_paiement,
-                                date_creation,
-                                date_modification
-                            FROM loyer_detail
-                            WHERE id_loyer = ?
-                            ORDER BY annee ASC, numero_mois ASC";
+                                ld.id              AS id_loyer_detail,
+                                ld.id_loyer,
+                                ld.id_unite,
+                                ld.mois            AS loyer_mois,
+                                ld.numero_mois     AS loyer_numero_mois,
+                                ld.annee           AS loyer_annee,
+                                ld.quantite,
+                                ld.description,
+                                ld.montant         AS loyer_detail_montant,
+                                ld.dates,
+                                ld.est_paye,
+                                ld.date_paiement,
+                                ld.date_creation,
+                                ld.date_modification,
+                                u.nom              AS nom_unite,
+                                u.abreviation      AS abreviation_unite,
+                                u.code             AS code_unite,
+                                l.id_service       AS id_service,
+                                s.nom              AS nom_service
+                            FROM loyer_detail ld
+                            JOIN loyer l            ON l.id_loyer   = ld.id_loyer
+                            LEFT JOIN unites u      ON u.id         = ld.id_unite
+                            LEFT JOIN services s    ON s.id         = l.id_service
+                            WHERE ld.id_loyer = ?
+                            ORDER BY ld.annee ASC, ld.numero_mois ASC, ld.id_unite ASC";
             $stmtDetails = $conn->prepare($sqlDetails);
             $stmtDetails->execute([$id_loyer]);
             $details = $stmtDetails->fetchAll(PDO::FETCH_ASSOC);
@@ -181,6 +200,8 @@ class LoyerControleur {
             foreach ($details as &$detail) {
                 $stmtPaiements->execute([$detail['id_loyer_detail']]);
                 $detail['paiements'] = $stmtPaiements->fetchAll(PDO::FETCH_ASSOC);
+                // ✅ Laisser dates comme string JSON — le frontend utilise DateService.parseISODatesRaw
+                // Ne PAS décoder ici : api.js corromprait un tableau de strings ISO lors de sa conversion
             }
             unset($detail); // casser la référence
 
@@ -208,9 +229,12 @@ class LoyerControleur {
             if (empty($data['id_client']) || empty($data['periode_debut']) || empty($data['duree_mois'])) {
                 throw new Exception('Données obligatoires manquantes (id_client, periode_debut, duree_mois)');
             }
-            
-            // ✅ Générer le numéro de loyer (numérotation par client)
-            $numeroInfo = self::genererNumeroLoyer($conn, $data['id_client']);
+
+            // Extraire l'année depuis la date de début
+            $anneeLoyer = (int)date('Y', strtotime($data['periode_debut']));
+
+            // ✅ Générer le numéro de loyer (numérotation par client ET par année)
+            $numeroInfo = self::genererNumeroLoyer($conn, $data['id_client'], $anneeLoyer);
             
             // Calculer la date de fin si pas fournie
             if (empty($data['periode_fin'])) {
@@ -222,29 +246,34 @@ class LoyerControleur {
             }
             
             // Insérer le loyer
-            $afficher_dates = toTinyInt($data['afficher_dates_paiement'] ?? 0);
+            $afficher_dates     = toTinyInt($data['afficher_dates_paiement'] ?? 0);
+            $id_contrat_location = isset($data['id_contrat_location'])
+                                  ? (int)$data['id_contrat_location'] : null;
 
             $sql = "INSERT INTO loyer (
-                        numero_loyer, numero_sequence, id_client,
+                        numero_loyer, numero_sequence, annee_loyer, id_client,
                         date_creation_loyer, periode_debut, periode_fin, duree_mois,
-                        motif, afficher_dates_paiement, description, montant_total, statut,
-                        createur_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-            
+                        motif, id_service, afficher_dates_paiement, description,
+                        montant_total, statut, id_contrat_location, createur_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
             $stmt = $conn->prepare($sql);
             $success = $stmt->execute([
                 $numeroInfo['numero'],
                 $numeroInfo['sequence'],
+                $anneeLoyer,
                 $data['id_client'],
                 $data['date_creation_loyer'] ?? date('Y-m-d'),
                 $data['periode_debut'],
                 $data['periode_fin'],
                 $data['duree_mois'],
                 $data['motif'] ?? null,
+                isset($data['id_service']) ? (int)$data['id_service'] : null,
                 $afficher_dates,
                 $data['description'] ?? null,
                 $data['loyer_montant_total'],
                 $data['loyer_statut'] ?? 'actif',
+                $id_contrat_location,
                 $data['createur_id'] ?? null
             ]);
             
@@ -260,11 +289,12 @@ class LoyerControleur {
             }
             
             return [
-                'success' => true,
-                'id_loyer' => $id_loyer,
-                'numero_loyer' => $numeroInfo['numero'],
+                'success'         => true,
+                'id_loyer'        => $id_loyer,
+                'numero_loyer'    => $numeroInfo['numero'],
                 'numero_sequence' => $numeroInfo['sequence'],
-                'message' => 'Loyer créé avec succès'
+                'annee_loyer'     => $anneeLoyer,
+                'message'         => 'Loyer créé avec succès'
             ];
         } catch (PDOException $e) {
             error_log("Erreur ajout loyer: " . $e->getMessage());
@@ -281,6 +311,27 @@ class LoyerControleur {
      */
     public static function modifierLoyer($conn, $id_loyer, $data) {
         try {
+            // ✅ Vérifier si ce loyer est lié à une facture
+            $stmtCheck = $conn->prepare(
+                "SELECT l.id_facture, f.etat
+                 FROM loyer l
+                 LEFT JOIN facture f ON f.id_facture = l.id_facture
+                 WHERE l.id_loyer = ?"
+            );
+            $stmtCheck->execute([$id_loyer]);
+            $row = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($row && $row['id_facture'] !== null) {
+                $etatFacture = $row['etat'] ?? '';
+                $etatsAutorises = ['En attente', 'Éditée'];
+                if (!in_array($etatFacture, $etatsAutorises, true)) {
+                    throw new Exception(
+                        "Ce loyer est lié à une facture en état \"$etatFacture\". " .
+                        "La modification n'est autorisée que si la facture est \"En attente\" ou \"Éditée\"."
+                    );
+                }
+            }
+
             $afficher_dates_upd = toTinyInt($data['afficher_dates_paiement'] ?? 0);
 
             $sql = "UPDATE loyer SET
@@ -288,6 +339,7 @@ class LoyerControleur {
                         periode_fin = ?,
                         duree_mois = ?,
                         motif = ?,
+                        id_service = ?,
                         afficher_dates_paiement = ?,
                         description = ?,
                         montant_total = ?,
@@ -302,6 +354,7 @@ class LoyerControleur {
                 $data['periode_fin'],
                 $data['duree_mois'],
                 $data['motif'] ?? null,
+                isset($data['id_service']) ? (int)$data['id_service'] : null,
                 $afficher_dates_upd,
                 $data['description'] ?? null,
                 $data['loyer_montant_total'],
@@ -314,14 +367,9 @@ class LoyerControleur {
                 throw new Exception('Erreur lors de la modification ou loyer non trouvé');
             }
             
-            // Mettre à jour les détails mensuels si fournis
+            // Mettre à jour les montants mensuels si fournis
             if (isset($data['montants_mensuels']) && is_array($data['montants_mensuels'])) {
-                // Supprimer les anciens
-                $stmtDelete = $conn->prepare("DELETE FROM loyer_detail WHERE id_loyer = ?");
-                $stmtDelete->execute([$id_loyer]);
-                
-                // Recréer les détails
-                self::ajouterMontantsMensuels($conn, $id_loyer, $data['montants_mensuels']);
+                self::mettreAJourMontantsMensuels($conn, $id_loyer, $data['montants_mensuels']);
             }
             
             return [
@@ -344,6 +392,43 @@ class LoyerControleur {
      */
     public static function supprimerLoyer($conn, $id_loyer) {
         try {
+            // ✅ Vérifier si ce loyer est lié à une facture
+            $stmtCheck = $conn->prepare(
+                "SELECT l.id_facture, f.etat
+                 FROM loyer l
+                 LEFT JOIN facture f ON f.id_facture = l.id_facture
+                 WHERE l.id_loyer = ?"
+            );
+            $stmtCheck->execute([$id_loyer]);
+            $row = $stmtCheck->fetch(PDO::FETCH_ASSOC);
+
+            if ($row && $row['id_facture'] !== null) {
+                $etatFacture = $row['etat'] ?? '';
+                $idFacture   = (int)$row['id_facture'];
+
+                if ($etatFacture === 'En attente') {
+                    // Supprimer la facture liée (lignes + facture)
+                    $conn->prepare("DELETE FROM lignesfacture WHERE id_facture = ?")
+                         ->execute([$idFacture]);
+                    $conn->prepare("DELETE FROM facture WHERE id_facture = ?")
+                         ->execute([$idFacture]);
+                    error_log("LoyerControleur::supprimerLoyer - Facture #$idFacture supprimée (état En attente)");
+
+                } elseif ($etatFacture === 'Éditée') {
+                    // Annuler la facture liée
+                    $conn->prepare(
+                        "UPDATE facture SET etat = 'Annulée', date_annulation = CURDATE() WHERE id_facture = ?"
+                    )->execute([$idFacture]);
+                    error_log("LoyerControleur::supprimerLoyer - Facture #$idFacture annulée (état Éditée)");
+
+                } else {
+                    throw new Exception(
+                        "Ce loyer est lié à une facture en état \"$etatFacture\". " .
+                        "La suppression n'est autorisée que si la facture est \"En attente\" ou \"Éditée\"."
+                    );
+                }
+            }
+
             $sql = "DELETE FROM loyer WHERE id_loyer = ?";
             $stmt = $conn->prepare($sql);
             $success = $stmt->execute([$id_loyer]);
@@ -374,28 +459,40 @@ class LoyerControleur {
      * @param int $id_client ID du client
      * @return array ['numero' => 'LOY-12-003', 'sequence' => 3]
      */
-    public static function genererNumeroLoyer($conn, $id_client) {
+    /**
+     * Génère le prochain numéro de loyer pour un client et une année.
+     * Format: LOY-{idClient}-{annee}-{seq}
+     * Exemple: LOY-12-2026-001, LOY-12-2026-002, LOY-12-2027-001
+     *
+     * @param PDO $conn
+     * @param int $id_client
+     * @param int $annee       Année du contrat (ex: 2026)
+     * @return array ['numero' => 'LOY-12-2026-001', 'sequence' => 1, 'annee' => 2026]
+     */
+    public static function genererNumeroLoyer($conn, $id_client, $annee = null) {
         try {
-            // Récupérer la dernière séquence pour ce client
-            // FOR UPDATE = verrouillage en écriture (protection concurrence)
-            $sql = "SELECT COALESCE(MAX(numero_sequence), 0) AS derniere_sequence 
-                    FROM loyer 
-                    WHERE id_client = ? 
+            if (!$annee) $annee = (int)date('Y');
+            $annee = (int)$annee;
+
+            // Séquence par (id_client, annee_loyer) — verrouillage pour éviter les concurrences
+            $sql = "SELECT COALESCE(MAX(numero_sequence), 0) AS derniere_sequence
+                    FROM loyer
+                    WHERE id_client = ? AND annee_loyer = ?
                     FOR UPDATE";
-            
+
             $stmt = $conn->prepare($sql);
-            $stmt->execute([$id_client]);
+            $stmt->execute([$id_client, $annee]);
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
-            
-            // Calculer la prochaine séquence
+
             $prochaine_sequence = $result['derniere_sequence'] + 1;
-            
-            // Générer le numéro au format LOY-{client}-{seq}
-            $numero = sprintf('LOY-%d-%03d', $id_client, $prochaine_sequence);
-            
+
+            // Format : LOY-{client}-{annee}-{seq 3 chiffres}
+            $numero = sprintf('LOY-%d-%d-%03d', $id_client, $annee, $prochaine_sequence);
+
             return [
-                'numero' => $numero,
-                'sequence' => $prochaine_sequence
+                'numero'   => $numero,
+                'sequence' => $prochaine_sequence,
+                'annee'    => $annee
             ];
         } catch (PDOException $e) {
             error_log("Erreur génération numéro loyer: " . $e->getMessage());
@@ -411,19 +508,27 @@ class LoyerControleur {
      */
     private static function ajouterMontantsMensuels($conn, $id_loyer, $montantsMensuels) {
         try {
+            error_log("LoyerControleur::ajouterMontantsMensuels - ID loyer: $id_loyer, montants: " . json_encode($montantsMensuels));
             $sql = "INSERT INTO loyer_detail (
-                        id_loyer, mois, numero_mois, annee, montant, est_paye, date_paiement
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)";
+                        id_loyer, id_unite, mois, numero_mois, annee,
+                        quantite, description, montant, dates, est_paye, date_paiement
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             
             $stmt = $conn->prepare($sql);
             
             foreach ($montantsMensuels as $detail) {
                 $stmt->execute([
                     $id_loyer,
+                    isset($detail['id_unite']) ? (int)$detail['id_unite'] : null,
                     $detail['loyer_mois'],
                     $detail['loyer_numero_mois'],
                     $detail['loyer_annee'] ?? date('Y'),
+                    $detail['quantite'] ?? null,
+                    $detail['description'] ?? null,
                     $detail['loyer_detail_montant'],
+                    isset($detail['dates']) && is_array($detail['dates'])
+                        ? json_encode($detail['dates'])
+                        : ($detail['dates'] ?? null),
                     toTinyInt($detail['est_paye'] ?? false),
                     $detail['date_paiement'] ?? null
                 ]);
@@ -433,6 +538,54 @@ class LoyerControleur {
             throw new Exception("Erreur lors de l'ajout des montants mensuels");
         }
     }
+
+    /**
+     * Met à jour uniquement les montants des loyer_detail existants.
+     * Utilise id_loyer_detail si disponible pour un UPDATE précis,
+     * sinon fallback sur (id_loyer, numero_mois, annee, id_unite).
+     * Préserve id_unite, quantite, dates et tous les champs non éditables.
+     */
+    private static function mettreAJourMontantsMensuels($conn, $id_loyer, $montantsMensuels) {
+        try {
+            $sqlParId = "UPDATE loyer_detail
+                         SET montant = ?, est_paye = ?, date_paiement = ?
+                         WHERE id = ? AND id_loyer = ?";
+
+            $sqlFallback = "UPDATE loyer_detail
+                            SET montant = ?, est_paye = ?, date_paiement = ?
+                            WHERE id_loyer = ? AND numero_mois = ? AND annee = ? AND id_unite = ?";
+
+            $stmtId       = $conn->prepare($sqlParId);
+            $stmtFallback = $conn->prepare($sqlFallback);
+
+            foreach ($montantsMensuels as $detail) {
+                $montant        = $detail['loyer_detail_montant'] ?? 0;
+                $estPaye        = toTinyInt($detail['est_paye'] ?? false);
+                $datePaiement   = $detail['date_paiement'] ?? null;
+                $idLoyerDetail  = isset($detail['id_loyer_detail']) && $detail['id_loyer_detail'] !== null
+                                  ? (int)$detail['id_loyer_detail'] : null;
+
+                if ($idLoyerDetail !== null) {
+                    $stmtId->execute([$montant, $estPaye, $datePaiement, $idLoyerDetail, $id_loyer]);
+                } else {
+                    // Fallback : UPDATE via clé composite
+                    $numeroMois = $detail['loyer_numero_mois'];
+                    $annee      = $detail['loyer_annee'] ?? date('Y');
+                    $idUnite    = isset($detail['id_unite']) && $detail['id_unite'] !== null
+                                  ? (int)$detail['id_unite'] : null;
+                    if ($idUnite !== null) {
+                        $stmtFallback->execute([$montant, $estPaye, $datePaiement,
+                                                $id_loyer, $numeroMois, $annee, $idUnite]);
+                    }
+                    // Si id_unite null ET pas d'id_loyer_detail → on ne peut pas mettre à jour sans risque
+                }
+            }
+        } catch (PDOException $e) {
+            error_log("Erreur mise à jour montants mensuels: " . $e->getMessage());
+            throw new Exception("Erreur lors de la mise à jour des montants mensuels");
+        }
+    }
+
 
     /**
      * Vérifie si un numéro de loyer existe déjà
@@ -761,5 +914,32 @@ class LoyerControleur {
              ->execute([$etatPaiement, $id_loyer]);
 
         return $etatPaiement;
+    }
+
+    /**
+     * Lie une facture à un loyer (stocke id_facture dans la table loyer).
+     * Appelé après la génération d'une facture depuis un loyer.
+     *
+     * @param PDO $conn
+     * @param int $id_loyer
+     * @param int $id_facture
+     * @return array {success, message}
+     */
+    public static function lierFacture($conn, $id_loyer, $id_facture) {
+        try {
+            $stmt = $conn->prepare("UPDATE loyer SET id_facture = ? WHERE id_loyer = ?");
+            $stmt->execute([(int)$id_facture, (int)$id_loyer]);
+
+            if ($stmt->rowCount() === 0) {
+                throw new Exception("Loyer #$id_loyer introuvable");
+            }
+
+            error_log("LoyerControleur::lierFacture - Loyer #$id_loyer lié à la facture #$id_facture");
+            return ['success' => true, 'message' => "Loyer #$id_loyer lié à la facture #$id_facture"];
+
+        } catch (PDOException $e) {
+            error_log("LoyerControleur::lierFacture - Erreur: " . $e->getMessage());
+            throw new Exception('Erreur lors de la liaison loyer-facture: ' . $e->getMessage());
+        }
     }
 }
