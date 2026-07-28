@@ -604,11 +604,6 @@ class ServiceFacture {
                 echo "Erreur lors de la création du générateur PDF: " . $e->getMessage();
             }            
 
-            error_log("Résultat de la génération du PDF: " . json_encode($result));
-            if (!$result) {
-                throw new Exception('Erreur lors de la génération du PDF');
-            }
-
             // Mettre à jour les informations d'édition de la facture
             $dateEdition = date('Y-m-d H:i:s');
             $updateResult = FactureControleur::mettreAJourEditionFacture($this->conn, $id_facture, $dateEdition, $pdfFilename);
