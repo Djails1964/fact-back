@@ -21,11 +21,22 @@ class FactureControleur {
      */
     public static function listerFactures($conn, $annee = null) {
         try {
-            $sql = "SELECT f.*, c.nom, c.prenom, c.email,
-                    -- ✅ Lien loyer : non null si la facture a été générée depuis un loyer
-                    (SELECT l.id_loyer FROM loyer l WHERE l.id_facture = f.id_facture LIMIT 1) AS id_loyer
+            // ✅ f.id_contrat_location (colonne directe) indique si cette
+            // facture a été générée depuis une location de salle — plus besoin
+            // de sous-requête via loyer (supprimé, migration 042). est_forfait
+            // (via le type de contrat de location) est la source de vérité
+            // pour distinguer facture standard / confirmation de paiement —
+            // pas la présence de lignes ou de détail mensuel.
+            // ✅ est_imprimee : calculé à partir de date_edition (pas de colonne
+            // dédiée) — vrai dès que le PDF a été généré au moins une fois.
+            // Utilisé par le workflow des confirmations (FactureActions.jsx) :
+            // impression → email, distinct du workflow facture standard.
+            $sql = "SELECT f.*, c.nom, c.prenom, c.email, tcl.est_forfait,
+                           (f.date_edition IS NOT NULL) AS est_imprimee
                     FROM facture f 
-                    JOIN client c ON f.id_client = c.id";
+                    JOIN client c ON f.id_client = c.id
+                    LEFT JOIN location_salle_contrat lsc ON lsc.id = f.id_contrat_location
+                    LEFT JOIN type_contrat_location tcl ON tcl.id = lsc.id_type_contrat";
             
             $params = [];
             
@@ -58,11 +69,17 @@ class FactureControleur {
     public static function getFactureParId($conn, $id_facture) {
         try {
             // Récupérer les informations de la facture
-            $sql = "SELECT f.*, c.nom, c.prenom, c.titre, c.rue, c.numero, c.code_postal, c.localite, c.telephone, c.email, c.estTherapeute,
-                    -- ✅ Lien loyer : non null si la facture a été générée depuis un loyer
-                    (SELECT l.id_loyer FROM loyer l WHERE l.id_facture = f.id_facture LIMIT 1) AS id_loyer
+            // ✅ f.id_contrat_location (colonne directe) indique si cette
+            // facture a été générée depuis une location de salle. est_forfait
+            // (via le type de contrat de location) est la source de vérité
+            // pour distinguer facture standard / confirmation de paiement —
+            // pas la présence de lignes ou de détail mensuel côté frontend.
+            $sql = "SELECT f.*, c.nom, c.prenom, c.titre, c.rue, c.numero, c.code_postal, c.localite, c.telephone, c.email, c.est_therapeute, tcl.est_forfait,
+                           (f.date_edition IS NOT NULL) AS est_imprimee
                     FROM facture f 
                     JOIN client c ON f.id_client = c.id 
+                    LEFT JOIN location_salle_contrat lsc ON lsc.id = f.id_contrat_location
+                    LEFT JOIN type_contrat_location tcl ON tcl.id = lsc.id_type_contrat
                     WHERE f.id_facture = ?";
             $stmt = $conn->prepare($sql);
             $stmt->execute([$id_facture]);
@@ -96,8 +113,39 @@ class FactureControleur {
             $stmtLignes->execute([$id_facture]);
             $lignes = $stmtLignes->fetchAll(PDO::FETCH_ASSOC);
             
+            // ✅ Détails mensuels (confirmations de paiement — contrats au
+            // forfait). Une facture n'a JAMAIS les deux à la fois : soit des
+            // lignesfacture (facture standard), soit un détail mensuel
+            // (confirmation) — voir facture_detail_mensuel.
+            $sqlDetailsMensuels = "SELECT
+                fdm.id_detail,
+                fdm.id_facture,
+                fdm.mois,
+                fdm.annee,
+                fdm.id_unite,
+                fdm.id_service,
+                fdm.quantite,
+                fdm.description,
+                fdm.montant,
+                fdm.dates,
+                fdm.duree,
+                fdm.nb_seances,
+                fdm.est_paye,
+                fdm.date_paiement,
+                u.abreviation as abreviation_unite,
+                u.nom as nom_unite,
+                u.permet_multiplicateur
+            FROM facture_detail_mensuel fdm
+            LEFT JOIN unites u ON u.id = fdm.id_unite
+            WHERE fdm.id_facture = ?
+            ORDER BY fdm.mois ASC";
+            $stmtDetailsMensuels = $conn->prepare($sqlDetailsMensuels);
+            $stmtDetailsMensuels->execute([$id_facture]);
+            $detailsMensuels = $stmtDetailsMensuels->fetchAll(PDO::FETCH_ASSOC);
+
             // Combiner les résultats
             $facture['lignes'] = $lignes;
+            $facture['details_mensuels'] = $detailsMensuels;
             
             return $facture;
         } catch (PDOException $e) {
@@ -165,37 +213,53 @@ class FactureControleur {
      * @return string      Numéro formaté, ex: "087.2026"
      * @throws Exception   Si le paramètre n'existe pas pour cette année
      */
-    public static function allouerNumeroFacture($conn, $annee) {
+    /**
+     * Alloue atomiquement le prochain numéro pour une année donnée.
+     * ✅ Deux séquences indépendantes, mêmes groupe/sous-groupe_parametre,
+     * distinguées par nom_parametre : 'Prochain Numéro Facture' pour les
+     * factures standard, 'Prochain Numéro Confirmation' pour les
+     * confirmations de paiement (contrat au forfait).
+     *
+     * @param PDO  $conn
+     * @param int  $annee
+     * @param bool $estConfirmation
+     * @return string
+     */
+    public static function allouerNumeroFacture($conn, $annee, $estConfirmation = false) {
+        $nomParametre = $estConfirmation ? 'Prochain Numéro Confirmation' : 'Prochain Numéro Facture';
+
         // 1. Lire ET verrouiller la ligne pour éviter la concurrence
         $stmt = $conn->prepare("
             SELECT id, valeur_parametre
             FROM   parametres
-            WHERE  nom_parametre          = 'Prochain Numéro Facture'
+            WHERE  nom_parametre          = ?
               AND  groupe_parametre       = 'Facture'
               AND  sous_groupe_parametre  = 'Numéro'
               AND  annee_parametre        = ?
             LIMIT 1
             FOR UPDATE
         ");
-        $stmt->execute([$annee]);
+        $stmt->execute([$nomParametre, $annee]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$row) {
             throw new Exception(
-                "Paramètre 'Prochain Numéro Facture' introuvable pour l'année {$annee}. " .
-                "Configurez-le dans les paramètres avant de générer des factures."
+                "Paramètre '{$nomParametre}' introuvable pour l'année {$annee}. " .
+                "Configurez-le dans les paramètres avant de générer des " .
+                ($estConfirmation ? "confirmations." : "factures.")
             );
         }
 
         $sequence = (int) $row['valeur_parametre'];
-        $numero   = str_pad($sequence, 3, '0', STR_PAD_LEFT) . '.' . $annee;
+        $prefixe  = $estConfirmation ? 'C-' : 'F-';
+        $numero   = $prefixe . str_pad($sequence, 3, '0', STR_PAD_LEFT) . '.' . $annee;
 
         // 2. Incrémenter immédiatement dans la même transaction
         $upd = $conn->prepare("UPDATE parametres SET valeur_parametre = ? WHERE id = ?");
         $upd->execute([$sequence + 1, $row['id']]);
 
         if (is_dev_mode()) {
-            error_log("FactureControleur::allouerNumeroFacture - Numéro alloué: {$numero} (prochain: " . ($sequence + 1) . ")");
+            error_log("FactureControleur::allouerNumeroFacture [{$nomParametre}] - Numéro alloué: {$numero} (prochain: " . ($sequence + 1) . ")");
         }
 
         return $numero;
@@ -227,19 +291,31 @@ class FactureControleur {
             $ristourne    = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
             $montantTotal = self::calculerMontantTotal($data['lignes'], $ristourne);
             $montantBrut  = $montantTotal + $ristourne;
-            $dateEdition  = date('Y-m-d H:i:s');
 
+            // ✅ id_contrat_location : non NULL si cette facture est générée
+            // directement depuis une location de salle (remplace l'ancien
+            // rattachement via loyer, supprimé en migration 042).
+            $idContratLocation = isset($data['id_contrat_location']) && $data['id_contrat_location'] !== ''
+                ? (int) $data['id_contrat_location'] : null;
+
+            // ✅ date_edition reste NULL à la création — elle ne doit être
+            // renseignée qu'au moment où le PDF est réellement généré (voir
+            // FactureControleur::mettreAJourEditionFacture(), appelée depuis
+            // ServiceFacture::imprimerFacture()). La renseigner ici la
+            // faisait apparaître comme "déjà imprimée" (est_imprimee) dès la
+            // création, avant toute impression réelle.
             $stmt = $conn->prepare("INSERT INTO facture
-                (numero_facture, date_facture, montant_total, montant_brut, id_client, date_edition, ristourne)
-                VALUES (?, ?, ?, ?, ?, ?, ?)");
+                (numero_facture, date_facture, montant_total, montant_brut, id_client, ristourne, motif, id_contrat_location)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([
                 $data['numero_facture'],
                 $data['date_facture'],
                 $montantTotal,
                 $montantBrut,
                 $data['id_client'],
-                $dateEdition,
                 $ristourne,
+                $data['motif'] ?? null,
+                $idContratLocation,
             ]);
 
             $id_facture = $conn->lastInsertId();
@@ -303,7 +379,15 @@ class FactureControleur {
         if (!is_array($data)) {
             throw new Exception('Données de facture invalides - tableau attendu');
         }
-        
+
+        // ✅ Modification restreinte (date_facture + ristourne uniquement) —
+        // utilisée pour les factures liées à un loyer : seules ces deux
+        // informations propres à la facture restent modifiables manuellement
+        // (le client et les lignes proviennent du loyer/de la location).
+        if (!empty($data['modification_limitee'])) {
+            return self::modifierAttributsLimites($conn, $id_facture, $data);
+        }
+
         // ✅ CORRECTION: Gestion sécurisée des différents formats de id_client
         $id_client = null;
         if (isset($data['id_client'])) {
@@ -347,16 +431,30 @@ class FactureControleur {
                 throw new Exception('Facture non trouvée');
             }
 
-            // ✅ Bloquer la modification directe si la facture est liée à un loyer
-            $stmtLoyer = $conn->prepare(
-                "SELECT id_loyer FROM loyer WHERE id_facture = ? LIMIT 1"
-            );
-            $stmtLoyer->execute([$id_facture]);
-            if ($stmtLoyer->rowCount() > 0) {
+            // ✅ Bloquer la modification directe si la facture est liée à une
+            // location de salle (facture.id_contrat_location) — SAUF si
+            // l'appel vient explicitement de la régénération depuis cette même
+            // location, auquel cas c'est légitime.
+            $stmtLien = $conn->prepare("SELECT id_contrat_location, etat FROM facture WHERE id_facture = ?");
+            $stmtLien->execute([$id_facture]);
+            $lienFacture = $stmtLien->fetch(PDO::FETCH_ASSOC);
+            $estLieeAUneLocation = $lienFacture && $lienFacture['id_contrat_location'] !== null;
+
+            if ($estLieeAUneLocation && empty($data['regenere_depuis_location'])) {
                 throw new Exception(
-                    'Cette facture est liée à un loyer et ne peut pas être modifiée directement. ' .
-                    'Modifiez le loyer pour mettre à jour la facture.'
+                    'Cette facture est liée à une location de salle et ne peut pas être modifiée directement. ' .
+                    'Modifiez la location pour mettre à jour la facture.'
                 );
+            } elseif ($estLieeAUneLocation) {
+                // ✅ Même en régénération depuis la location, ne jamais écraser les
+                // lignes d'une facture déjà payée (partiellement ou totalement).
+                $etatActuel = $lienFacture['etat'];
+                if (!in_array($etatActuel, ['En attente', 'Éditée'], true)) {
+                    throw new Exception(
+                        "Cette facture est en état \"$etatActuel\" et ne peut plus être régénérée depuis la location. " .
+                        "Seules les factures \"En attente\" ou \"Éditée\" peuvent être mises à jour ainsi."
+                    );
+                }
             }
 
             // Calculer le montant total avec la méthode commune
@@ -451,6 +549,90 @@ class FactureControleur {
     }
 
     /**
+     * ✅ Modification restreinte d'une facture : uniquement date_facture et
+     * ristourne (avec recalcul de montant_total à partir du montant_brut
+     * existant). N'importe pas les lignes ni le client — utilisée pour les
+     * factures générées depuis un loyer, où client/lignes proviennent de la
+     * location et ne doivent pas être modifiés ici.
+     *
+     * @param PDO   $conn
+     * @param int   $id_facture
+     * @param array $data ['date_facture' => ..., 'ristourne' => ...]
+     * @return array
+     */
+    private static function modifierAttributsLimites($conn, $id_facture, $data) {
+        if (!isset($data['date_facture']) || empty($data['date_facture'])) {
+            throw new Exception('Date de facture manquante');
+        }
+
+        try {
+            // Récupérer l'état actuel et le montant brut existant (les lignes
+            // ne changent pas dans ce mode restreint)
+            $stmt = $conn->prepare(
+                "SELECT etat, montant_brut FROM facture WHERE id_facture = ?"
+            );
+            $stmt->execute([$id_facture]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) {
+                throw new Exception('Facture non trouvée');
+            }
+
+            if (!in_array($row['etat'], ['En attente', 'Éditée'], true)) {
+                throw new Exception(
+                    "Cette facture est en état \"{$row['etat']}\" et ne peut plus être modifiée."
+                );
+            }
+
+            $ristourne    = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
+            $montantBrut  = floatval($row['montant_brut']);
+            $montantTotal = $montantBrut - $ristourne;
+
+            $stmtUpdate = $conn->prepare(
+                "UPDATE facture
+                 SET date_facture = ?, ristourne = ?, montant_total = ?
+                 WHERE id_facture = ?"
+            );
+            $stmtUpdate->execute([
+                $data['date_facture'],
+                $ristourne,
+                $montantTotal,
+                $id_facture,
+            ]);
+
+            // ✅ Descriptions des lignes (uniquement ce champ, rien d'autre) —
+            // tableau [{ id_ligne, description }, ...]. Scopé sur id_facture
+            // par sécurité (empêche de modifier une ligne d'une autre facture).
+            if (!empty($data['descriptions_lignes']) && is_array($data['descriptions_lignes'])) {
+                $stmtDesc = $conn->prepare(
+                    "UPDATE lignesfacture SET description = ? WHERE id_ligne = ? AND id_facture = ?"
+                );
+                foreach ($data['descriptions_lignes'] as $ligneDesc) {
+                    if (!isset($ligneDesc['id_ligne'])) continue;
+                    $stmtDesc->execute([
+                        (string) ($ligneDesc['description'] ?? ''),
+                        (int) $ligneDesc['id_ligne'],
+                        $id_facture,
+                    ]);
+                }
+            }
+
+            return [
+                'success'    => true,
+                'message'    => 'Facture modifiée avec succès',
+                'id_facture' => $id_facture,
+            ];
+
+        } catch (PDOException $e) {
+            error_log("Erreur SQL dans modifierAttributsLimites: " . $e->getMessage());
+            throw new Exception('Erreur lors de la modification de la facture: ' . $e->getMessage());
+        } catch (Exception $e) {
+            error_log("Erreur générale dans modifierAttributsLimites: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
      * Met à jour les informations d'édition d'une facture
      * 
      * @param PDO $conn La connexion à la base de données
@@ -499,10 +681,6 @@ class FactureControleur {
             $stmtLignes = $conn->prepare($sqlLignes);
             $stmtLignes->execute([$id_facture]);
             
-            // ✅ Casser le lien avec le loyer s'il existe (avant suppression pour éviter FK)
-            $conn->prepare("UPDATE loyer SET id_facture = NULL WHERE id_facture = ?")
-                 ->execute([$id_facture]);
-
             // Puis supprimer la facture
             $sqlFacture = "DELETE FROM facture WHERE id_facture = ?";
             $stmtFacture = $conn->prepare($sqlFacture);
@@ -560,9 +738,6 @@ class FactureControleur {
                     $sql = "UPDATE facture SET etat = ?, date_annulation = ? WHERE id_facture = ?";
                     $stmt = $conn->prepare($sql);
                     $stmt->execute([$nouvelEtat, $dateCourante, $id_facture]);
-                    // ✅ Casser le lien avec le loyer — la facture annulée ne bloque plus le loyer
-                    $conn->prepare("UPDATE loyer SET id_facture = NULL WHERE id_facture = ?")
-                         ->execute([$id_facture]);
                     break;
                     
                 case 'Envoyée':
@@ -861,6 +1036,417 @@ class FactureControleur {
         $montantNet = max(0, $montantBrut - floatval($ristourne));
         
         return $montantNet;
+    }
+
+    /**
+     * ✅ Cascade FIFO des paiements sur les mois d'une confirmation de paiement.
+     *
+     * Contexte : pour une facture de type confirmation (contrat au forfait),
+     * les paiements sont cumulatifs sur la facture entière (paiement.id_facture),
+     * sans lien direct à un mois précis. Cette méthode recalcule, pour
+     * l'affichage, quel mois est payé à quelle date, en épuisant les mois
+     * dans l'ordre (mois ASC) avec les paiements confirmés dans l'ordre
+     * chronologique (date_paiement ASC, puis id_paiement ASC en cas d'égalité).
+     *
+     * Règles (voir discussion projet) :
+     *   - Un paiement unique couvrant plusieurs mois : tous ces mois sont
+     *     marqués payés à la date de ce paiement unique.
+     *   - Des paiements mensuels successifs : chaque mois est payé à la date
+     *     du paiement qui l'a soldé (potentiellement différente pour chacun).
+     *   - Si un mois est soldé par la combinaison de deux paiements
+     *     successifs, sa date de paiement est celle du second (celui qui a
+     *     complété le montant dû).
+     *   - Ne fait rien si la facture n'a pas de détail mensuel (facture
+     *     standard "à l'utilisation", pas une confirmation).
+     *   - La ristourne de la facture (le cas échéant) est déduite du montant
+     *     dû du dernier mois — les montants de facture_detail_mensuel sont
+     *     bruts, seule cette déduction permet à un paiement du montant net
+     *     total de couvrir effectivement tous les mois.
+     *
+     * À appeler après tout INSERT/UPDATE/DELETE de paiement concernant une
+     * facture susceptible d'être une confirmation (voir PaiementControleur /
+     * ServicePaiement).
+     *
+     * @param PDO $conn
+     * @param int $id_facture
+     * @return void
+     */
+    public static function recalculerCascadeMensuelle($conn, $id_facture) {
+        // 1. Détails mensuels de cette facture, triés par mois
+        $stmtDetails = $conn->prepare(
+            "SELECT id_detail, mois, montant FROM facture_detail_mensuel
+             WHERE id_facture = ? ORDER BY mois ASC"
+        );
+        $stmtDetails->execute([$id_facture]);
+        $details = $stmtDetails->fetchAll(PDO::FETCH_ASSOC);
+
+        if (empty($details)) {
+            return; // Facture "à l'utilisation" (pas de détail mensuel) : rien à faire
+        }
+
+        // ✅ La ristourne s'applique au niveau de la facture entière, pas
+        // mois par mois — mais les montants de facture_detail_mensuel sont
+        // bruts (leur somme = montant_brut). Sans en tenir compte ici, la
+        // cascade réclamerait toujours le montant total BRUT, laissant le
+        // dernier mois "non payé" même facture soldée (montant_total net
+        // intégralement payé). On déduit donc la ristourne du dernier mois
+        // (le plus simple et le plus courant : une ristourne réduit le solde
+        // final).
+        $stmtRistourne = $conn->prepare("SELECT ristourne FROM facture WHERE id_facture = ?");
+        $stmtRistourne->execute([$id_facture]);
+        $ristourne = (float) $stmtRistourne->fetchColumn();
+
+        // 2. Paiements confirmés de cette facture, triés chronologiquement
+        $stmtPaiements = $conn->prepare(
+            "SELECT montant_paye, date_paiement FROM paiement
+             WHERE id_facture = ? AND statut = 'confirme'
+             ORDER BY date_paiement ASC, id_paiement ASC"
+        );
+        $stmtPaiements->execute([$id_facture]);
+        $paiements = $stmtPaiements->fetchAll(PDO::FETCH_ASSOC);
+
+        $nbPaiements = count($paiements);
+
+        // 3. Cascade FIFO : consommer les paiements dans l'ordre pour
+        // couvrir chaque mois, dans l'ordre.
+        $indexPaiement        = 0;
+        $resteSurPaiement     = $nbPaiements > 0 ? (float) $paiements[0]['montant_paye'] : 0.0;
+        $dateCourantePaiement = $nbPaiements > 0 ? $paiements[0]['date_paiement']        : null;
+
+        $stmtUpdate = $conn->prepare(
+            "UPDATE facture_detail_mensuel SET est_paye = ?, date_paiement = ? WHERE id_detail = ?"
+        );
+
+        $epsilon = 0.005; // Tolérance flottante, cohérente avec le reste du code
+        $dernierIndex = count($details) - 1;
+
+        foreach ($details as $i => $detail) {
+            $montantDu     = (float) $detail['montant'];
+            // ✅ Ristourne déduite du dernier mois uniquement (voir commentaire plus haut)
+            if ($i === $dernierIndex && $ristourne > 0) {
+                $montantDu = max(0, $montantDu - $ristourne);
+            }
+            $montantAlloue = 0.0;
+            $dateSoldeur   = null;
+
+            while ($montantAlloue < ($montantDu - $epsilon) && $indexPaiement < $nbPaiements) {
+                $aPrendre       = min($montantDu - $montantAlloue, $resteSurPaiement);
+                $montantAlloue += $aPrendre;
+                $resteSurPaiement -= $aPrendre;
+                $dateSoldeur    = $dateCourantePaiement;
+
+                if ($resteSurPaiement <= $epsilon) {
+                    $indexPaiement++;
+                    if ($indexPaiement < $nbPaiements) {
+                        $resteSurPaiement     = (float) $paiements[$indexPaiement]['montant_paye'];
+                        $dateCourantePaiement = $paiements[$indexPaiement]['date_paiement'];
+                    }
+                }
+            }
+
+            $estPaye = ($montantAlloue >= ($montantDu - $epsilon)) ? 1 : 0;
+            $stmtUpdate->execute([
+                $estPaye,
+                $estPaye ? $dateSoldeur : null,
+                $detail['id_detail'],
+            ]);
+        }
+    }
+
+    /**
+     * ✅ Crée une facture de type confirmation de paiement (contrat au
+     * forfait), avec son détail mensuel figé (facture_detail_mensuel) —
+     * équivalent de ajouterFacture() mais sans lignesfacture, pour les
+     * contrats qui ne facturent pas par ligne/unité mais par mois.
+     *
+     * @param PDO   $conn
+     * @param array $data ['numero_facture','date_facture','id_client',
+     *                     'ristourne','motif','id_contrat_location',
+     *                     'details_mensuels' => [{mois,annee,id_unite,
+     *                     id_service,quantite,description,montant,dates,
+     *                     duree,nb_seances}, ...]]
+     * @return array
+     * @throws Exception
+     */
+    public static function ajouterFactureAvecDetailMensuel($conn, $data) {
+        if (!is_array($data)) {
+            throw new Exception('Données de facture invalides - tableau attendu');
+        }
+        foreach (['numero_facture', 'date_facture', 'id_client', 'details_mensuels'] as $champ) {
+            if (!isset($data[$champ])) {
+                throw new Exception("Champ obligatoire manquant : $champ");
+            }
+        }
+        if (!is_array($data['details_mensuels']) || empty($data['details_mensuels'])) {
+            throw new Exception('Aucun détail mensuel fourni');
+        }
+
+        try {
+            $ristourne   = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
+            $montantBrut = 0;
+            foreach ($data['details_mensuels'] as $d) {
+                if (!isset($d['montant'])) {
+                    throw new Exception('Montant manquant dans un détail mensuel');
+                }
+                $montantBrut += floatval($d['montant']);
+            }
+            $montantTotal = max(0, $montantBrut - $ristourne);
+
+            $idContratLocation = isset($data['id_contrat_location']) && $data['id_contrat_location'] !== ''
+                ? (int) $data['id_contrat_location'] : null;
+
+            // ✅ date_edition reste NULL à la création — voir le même
+            // correctif et la même explication dans ajouterFacture() ci-dessus.
+
+            // ✅ État initial spécifique aux confirmations : 'Non payé', pas
+            // 'En attente' (vocabulaire des factures standard "à l'utilisation").
+            $stmt = $conn->prepare("INSERT INTO facture
+                (numero_facture, date_facture, montant_total, montant_brut, id_client, ristourne, motif, id_contrat_location, etat)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Non payé')");
+            $stmt->execute([
+                $data['numero_facture'],
+                $data['date_facture'],
+                $montantTotal,
+                $montantBrut,
+                $data['id_client'],
+                $ristourne,
+                $data['motif'] ?? null,
+                $idContratLocation,
+            ]);
+
+            $idFacture = (int) $conn->lastInsertId();
+
+            self::insererDetailsMensuels($conn, $idFacture, $data['details_mensuels']);
+
+            return [
+                'success'       => true,
+                'message'       => 'Confirmation de paiement créée avec succès',
+                'idFacture'     => $idFacture,
+                'id_facture'    => $idFacture,
+                'numeroFacture' => $data['numero_facture'],
+            ];
+
+        } catch (PDOException $e) {
+            error_log("Erreur SQL dans ajouterFactureAvecDetailMensuel: " . $e->getMessage());
+            throw new Exception('Erreur lors de la création de la confirmation de paiement: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * ✅ Modification restreinte d'une confirmation de paiement (contrat au
+     * forfait) : uniquement date_facture, et description/montant des lignes
+     * de facture_detail_mensuel déjà existantes (identifiées par id_detail,
+     * scopées sur id_facture par sécurité). N'importe pas le client ni le
+     * nombre de mois — utilisée depuis le bouton Modifier de la liste des
+     * factures, uniquement tant qu'aucun paiement n'a été enregistré.
+     * Miroir de modifierAttributsLimites() pour les factures standard.
+     *
+     * @param PDO   $conn
+     * @param int   $id_facture
+     * @param array $data ['date_facture' => ..., 'ristourne' => ..., 'details_mensuels' => [{id_detail, montant, description}, ...]]
+     * @return array
+     */
+    private static function modifierAttributsLimitesConfirmation($conn, $id_facture, $data) {
+        if (!isset($data['date_facture']) || empty($data['date_facture'])) {
+            throw new Exception('Date de facture manquante');
+        }
+
+        try {
+            $stmt = $conn->prepare("SELECT etat, ristourne FROM facture WHERE id_facture = ?");
+            $stmt->execute([$id_facture]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$row) {
+                throw new Exception('Facture non trouvée');
+            }
+
+            // ✅ Seul l'état 'Non payé' autorise cette modification restreinte
+            // — dès qu'un paiement existe (même partiel), on bloque.
+            if ($row['etat'] !== 'Non payé') {
+                throw new Exception(
+                    "Cette confirmation est en état \"{$row['etat']}\" et ne peut plus être modifiée " .
+                    "(un paiement a déjà été enregistré)."
+                );
+            }
+
+            $stmtDate = $conn->prepare("UPDATE facture SET date_facture = ? WHERE id_facture = ?");
+            $stmtDate->execute([$data['date_facture'], $id_facture]);
+
+            // ✅ Description + montant de chaque mois (uniquement ces deux
+            // champs, rien d'autre) — tableau [{ id_detail, montant, description }, ...].
+            // Scopé sur id_facture par sécurité (empêche de modifier une ligne
+            // d'une autre facture).
+            $montantBrut = 0;
+            if (!empty($data['details_mensuels']) && is_array($data['details_mensuels'])) {
+                $stmtDetail = $conn->prepare(
+                    "UPDATE facture_detail_mensuel SET montant = ?, description = ? WHERE id_detail = ? AND id_facture = ?"
+                );
+                foreach ($data['details_mensuels'] as $detail) {
+                    if (!isset($detail['id_detail'])) continue;
+                    $montant = floatval($detail['montant'] ?? 0);
+                    $stmtDetail->execute([
+                        $montant,
+                        (string) ($detail['description'] ?? ''),
+                        (int) $detail['id_detail'],
+                        $id_facture,
+                    ]);
+                    $montantBrut += $montant;
+                }
+
+                // Recalculer montant_brut / montant_total à partir de la
+                // somme des montants mensuels mis à jour et de la ristourne
+                // (nouvelle valeur envoyée si présente, sinon celle déjà en
+                // base — ristourne modifiable comme pour une facture standard).
+                $ristourne    = isset($data['ristourne']) ? floatval($data['ristourne']) : floatval($row['ristourne']);
+                $montantTotal = max(0, $montantBrut - $ristourne);
+                $stmtMontant = $conn->prepare(
+                    "UPDATE facture SET montant_brut = ?, montant_total = ?, ristourne = ? WHERE id_facture = ?"
+                );
+                $stmtMontant->execute([$montantBrut, $montantTotal, $ristourne, $id_facture]);
+            }
+
+            return [
+                'success'    => true,
+                'message'    => 'Confirmation modifiée avec succès',
+                'id_facture' => $id_facture,
+            ];
+
+        } catch (PDOException $e) {
+            error_log("Erreur SQL dans modifierAttributsLimitesConfirmation: " . $e->getMessage());
+            throw new Exception('Erreur lors de la modification de la confirmation: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * ✅ Modifie une facture de type confirmation de paiement : remplace
+     * entièrement son détail mensuel (delete + insert, comme lignesfacture
+     * pour modifierFacture) et recalcule les montants. Mêmes garde-fous que
+     * modifierFacture/modifierAttributsLimites, mais avec le vocabulaire
+     * d'état propre aux confirmations (seul 'Non payé' autorise la
+     * régénération — dès qu'un paiement existe, on bloque).
+     *
+     * @param PDO   $conn
+     * @param int   $id_facture
+     * @param array $data ['date_facture','ristourne','motif',
+     *                     'regenere_depuis_location', 'details_mensuels']
+     * @return array
+     * @throws Exception
+     */
+    public static function modifierFactureAvecDetailMensuel($conn, $id_facture, $data) {
+        if (!is_array($data)) {
+            throw new Exception('Données de facture invalides - tableau attendu');
+        }
+
+        // ✅ Modification restreinte (date_facture + description/montant du
+        // détail mensuel uniquement) — utilisée depuis le bouton Modifier de
+        // la liste des factures pour une confirmation non encore payée.
+        // Contrairement à la régénération complète ci-dessous : ne touche ni
+        // le client ni le nombre de mois, ne nécessite pas de venir de la
+        // location (bypass volontaire du garde-fou id_contrat_location, même
+        // principe que modifierAttributsLimites pour les factures standard).
+        if (!empty($data['modification_limitee'])) {
+            return self::modifierAttributsLimitesConfirmation($conn, $id_facture, $data);
+        }
+
+        try {
+            $stmtLien = $conn->prepare("SELECT id_contrat_location, etat FROM facture WHERE id_facture = ?");
+            $stmtLien->execute([$id_facture]);
+            $lienFacture = $stmtLien->fetch(PDO::FETCH_ASSOC);
+
+            if (!$lienFacture) {
+                throw new Exception('Facture non trouvée');
+            }
+
+            $estLieeAUneLocation = $lienFacture['id_contrat_location'] !== null;
+
+            if ($estLieeAUneLocation && empty($data['regenere_depuis_location'])) {
+                throw new Exception(
+                    'Cette confirmation est liée à une location de salle et ne peut pas être modifiée directement. ' .
+                    'Modifiez la location pour mettre à jour la confirmation.'
+                );
+            }
+
+            // ✅ Seul l'état 'Non payé' autorise la régénération — équivalent,
+            // pour une confirmation, de 'En attente'/'Éditée' pour une facture
+            // standard. Dès qu'un paiement existe, on bloque.
+            if (!in_array($lienFacture['etat'], ['Non payé'], true)) {
+                throw new Exception(
+                    "Cette confirmation est en état \"{$lienFacture['etat']}\" et ne peut plus être régénérée."
+                );
+            }
+
+            if (!isset($data['details_mensuels']) || !is_array($data['details_mensuels']) || empty($data['details_mensuels'])) {
+                throw new Exception('Aucun détail mensuel fourni');
+            }
+
+            $ristourne   = isset($data['ristourne']) ? floatval($data['ristourne']) : 0;
+            $montantBrut = 0;
+            foreach ($data['details_mensuels'] as $d) {
+                $montantBrut += floatval($d['montant'] ?? 0);
+            }
+            $montantTotal = max(0, $montantBrut - $ristourne);
+
+            $stmtUpdate = $conn->prepare("UPDATE facture
+                SET date_facture = ?, montant_total = ?, montant_brut = ?, ristourne = ?, motif = ?
+                WHERE id_facture = ?");
+            $stmtUpdate->execute([
+                $data['date_facture'] ?? date('Y-m-d'),
+                $montantTotal,
+                $montantBrut,
+                $ristourne,
+                $data['motif'] ?? null,
+                $id_facture,
+            ]);
+
+            // Remplacer les détails mensuels (delete + insert)
+            $conn->prepare("DELETE FROM facture_detail_mensuel WHERE id_facture = ?")->execute([$id_facture]);
+            self::insererDetailsMensuels($conn, $id_facture, $data['details_mensuels']);
+
+            return [
+                'success'    => true,
+                'message'    => 'Confirmation de paiement mise à jour avec succès',
+                'id_facture' => $id_facture,
+            ];
+
+        } catch (PDOException $e) {
+            error_log("Erreur SQL dans modifierFactureAvecDetailMensuel: " . $e->getMessage());
+            throw new Exception('Erreur lors de la mise à jour de la confirmation de paiement: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Insère les lignes de facture_detail_mensuel pour une facture donnée.
+     * Helper privé utilisé par ajouterFactureAvecDetailMensuel et
+     * modifierFactureAvecDetailMensuel.
+     *
+     * @param PDO   $conn
+     * @param int   $idFacture
+     * @param array $details
+     * @return void
+     */
+    private static function insererDetailsMensuels($conn, $idFacture, $details) {
+        $stmt = $conn->prepare("INSERT INTO facture_detail_mensuel
+            (id_facture, mois, annee, id_unite, id_service, quantite, description, montant, dates, duree, nb_seances)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+        foreach ($details as $d) {
+            if (!isset($d['mois'], $d['annee'], $d['montant'])) {
+                throw new Exception('Détail mensuel incomplet (mois/annee/montant requis)');
+            }
+            $stmt->execute([
+                $idFacture,
+                (int) $d['mois'],
+                (int) $d['annee'],
+                isset($d['id_unite'])   && $d['id_unite']   !== '' ? (int) $d['id_unite']   : null,
+                isset($d['id_service']) && $d['id_service'] !== '' ? (int) $d['id_service'] : null,
+                isset($d['quantite']) ? floatval($d['quantite']) : null,
+                $d['description'] ?? null,
+                floatval($d['montant']),
+                isset($d['dates']) ? (is_string($d['dates']) ? $d['dates'] : json_encode($d['dates'])) : null,
+                $d['duree'] ?? null,
+                isset($d['nb_seances']) ? (int) $d['nb_seances'] : null,
+            ]);
+        }
     }
 }
 ?>

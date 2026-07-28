@@ -14,7 +14,7 @@
 --   Si présent → seuls les clients correspondant au type peuvent réserver.
 --
 -- Valeurs reconnues actuellement :
---   'therapeute' → client.estTherapeute = 1
+--   'therapeute' → client.est_therapeute = 1
 --
 -- Dépend de: table parametres, migration 010 (structure LocationSalle/Salles)
 -- ============================================================================

@@ -27,8 +27,8 @@
                 // Si c'est un objet ServiceParametre
                 if ($conn instanceof ServiceParametre) {
                     $paramResult = $conn->getParametre('outputDir', 'Facture');
-                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
-                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
                     }
                 }
                 // Si c'est une connexion PDO
@@ -37,8 +37,8 @@
                     require_once APP_ROOT . '/ServiceParametre.php';
                     $serviceParametre = new ServiceParametre($conn);
                     $paramResult = $serviceParametre->getParametre('outputDir', 'Facture');
-                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
-                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
                     }
                 }
             } catch (Exception $e) {
@@ -93,8 +93,8 @@ if (!function_exists('factures_url')) {
                 // Si c'est un objet ServiceParametre
                 if ($conn instanceof ServiceParametre) {
                     $paramResult = $conn->getParametre('outputDir', 'Facture');
-                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
-                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
                     }
                 }
                 // Si c'est une connexion PDO
@@ -103,8 +103,8 @@ if (!function_exists('factures_url')) {
                     require_once APP_ROOT . '/ServiceParametre.php';
                     $serviceParametre = new ServiceParametre($conn);
                     $paramResult = $serviceParametre->getParametre('outputDir', 'Facture');
-                    if ($paramResult['success'] && isset($paramResult['parametre']['Valeur_parametre'])) {
-                        $outputDir = $paramResult['parametre']['Valeur_parametre'];
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
                     }
                 }
             } catch (Exception $e) {
@@ -118,6 +118,87 @@ if (!function_exists('factures_url')) {
         error_log("helpers.php - factures_url - filename: " . $filename);
         return app_url(trim($outputDir, '/') . ($filename ? '/' . $filename : ''));
 
+    }
+}
+
+if (!function_exists('confirmations_path')) {
+    /**
+     * Génère un chemin absolu vers le répertoire des confirmations de
+     * paiement (factures générées depuis une location au forfait).
+     * Miroir de factures_path(), lit le paramètre 'outputDirConfirmation'
+     * (groupe 'Facture') au lieu de 'outputDir'.
+     *
+     * @param string $filename Nom du fichier de confirmation
+     * @param PDO|ServiceParametre|null $conn Connexion à la base de données ou service paramètre
+     * @return string Chemin absolu complet
+     */
+    function confirmations_path($filename = '', $conn = null) {
+        $outputDir = 'storage/confirmations'; // Valeur par défaut
+
+        if ($conn !== null) {
+            try {
+                if ($conn instanceof ServiceParametre) {
+                    $paramResult = $conn->getParametre('outputDirConfirmation', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
+                    }
+                } else if ($conn instanceof PDO) {
+                    require_once APP_ROOT . '/ServiceParametre.php';
+                    $serviceParametre = new ServiceParametre($conn);
+                    $paramResult = $serviceParametre->getParametre('outputDirConfirmation', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('Erreur lors de la récupération du paramètre outputDirConfirmation: ' . $e->getMessage());
+            }
+        }
+
+        $isAbsolutePath = (
+            preg_match('/^[A-Za-z]:\\\\/', $outputDir) ||
+            preg_match('/^\//', $outputDir)
+        );
+
+        $basePath = $isAbsolutePath ? $outputDir : APP_ROOT . '/' . $outputDir;
+
+        return $filename ? $basePath . '/' . $filename : $basePath;
+    }
+}
+
+if (!function_exists('confirmations_url')) {
+    /**
+     * Génère une URL accessible pour un fichier de confirmation.
+     * Miroir de factures_url().
+     *
+     * @param string $filename Nom du fichier de confirmation
+     * @param PDO|ServiceParametre|null $conn Connexion à la base de données ou service paramètre
+     * @return string URL accessible pour le fichier
+     */
+    function confirmations_url($filename = '', $conn = null) {
+        $outputDir = 'storage/confirmations'; // Valeur par défaut
+
+        if ($conn !== null) {
+            try {
+                if ($conn instanceof ServiceParametre) {
+                    $paramResult = $conn->getParametre('outputDirConfirmation', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
+                    }
+                } else if ($conn instanceof PDO) {
+                    require_once APP_ROOT . '/ServiceParametre.php';
+                    $serviceParametre = new ServiceParametre($conn);
+                    $paramResult = $serviceParametre->getParametre('outputDirConfirmation', 'Facture');
+                    if ($paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+                        $outputDir = $paramResult['parametre']['valeur_parametre'];
+                    }
+                }
+            } catch (Exception $e) {
+                error_log('Erreur lors de la récupération du paramètre outputDirConfirmation: ' . $e->getMessage());
+            }
+        }
+
+        return app_url(trim($outputDir, '/') . ($filename ? '/' . $filename : ''));
     }
 }
 

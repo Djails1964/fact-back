@@ -78,13 +78,18 @@ try {
     }
     
     // Récupérer le répertoire de stockage depuis les paramètres
+    // ✅ 'type=confirmation' → dossier dédié aux confirmations de paiement
+    // (contrats au forfait), distinct des factures standard.
     $serviceParametre = new ServiceParametre($conn);
-    $outputDir = 'storage/factures'; // Valeur par défaut
-    
+    $estConfirmation = ($type === 'confirmation');
+    $outputDir = $estConfirmation ? 'storage/confirmations' : 'storage/factures'; // Valeurs par défaut
+
     try {
-        $paramResult = $serviceParametre->getParametre('OutputDir', 'Facture', 'Chemin');
-        if ($paramResult && isset($paramResult['valeurParametre'])) {
-            $outputDir = $paramResult['valeurParametre'];
+        $paramResult = $estConfirmation
+            ? $serviceParametre->getParametre('OutputDirConfirmation', 'Facture', 'Chemin')
+            : $serviceParametre->getParametre('OutputDir', 'Facture', 'Chemin');
+        if ($paramResult && $paramResult['success'] && isset($paramResult['parametre']['valeur_parametre'])) {
+            $outputDir = $paramResult['parametre']['valeur_parametre'];
         }
     } catch (Exception $e) {
         error_log("document-api - Erreur récupération OutputDir: " . $e->getMessage());

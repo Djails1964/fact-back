@@ -18,20 +18,7 @@ class ClientControleur
                 localite,
                 telephone,
                 email,
-                estTherapeute,
-                -- État de paiement agrégé sur tous les loyers actifs du client
-                (
-                    SELECT
-                        CASE
-                            WHEN COUNT(*) = 0                             THEN NULL
-                            WHEN SUM(etat_paiement = 'paye') = COUNT(*)   THEN 'paye'
-                            WHEN SUM(etat_paiement = 'non_paye') = COUNT(*) THEN 'non_paye'
-                            ELSE 'partiellement_paye'
-                        END
-                    FROM loyer
-                    WHERE id_client = client.id
-                      AND statut != 'annule'
-                ) AS loyer_etat_paiement
+                est_therapeute
             FROM
                 client 
             ORDER BY nom ASC";
@@ -104,7 +91,7 @@ class ClientControleur
                         localite,
                         telephone,
                         email,
-                                estTherapeute
+                                est_therapeute
                     FROM
                         client
                     WHERE 
@@ -149,7 +136,7 @@ class ClientControleur
         $localite = isset($dataArray['localite']) ? $dataArray['localite'] : '';
         $telephone = isset($dataArray['telephone']) ? $dataArray['telephone'] : '';
         $email = isset($dataArray['email']) ? $dataArray['email'] : '';
-        $estTherapeute = isset($dataArray['estTherapeute']) ? ($dataArray['estTherapeute'] ? 1 : 0) : 0;
+        $est_therapeute = isset($dataArray['est_therapeute']) ? ($dataArray['est_therapeute'] ? 1 : 0) : 0;
         // Validation du code_postal (seulement si pas null)
         error_log("ClientControleur - ajouterClient - Validation du code postal: " . ($code_postal ?? 'NULL'));
         if ($code_postal !== null && (!is_numeric($code_postal) || strlen($code_postal) > 5)) {
@@ -158,13 +145,13 @@ class ClientControleur
 
         try {
             // Préparation de la requête d'insertion
-            $sql = "INSERT INTO client (titre, nom, prenom, rue, numero, code_postal, localite, telephone, email, estTherapeute) 
+            $sql = "INSERT INTO client (titre, nom, prenom, rue, numero, code_postal, localite, telephone, email, est_therapeute) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
 
             error_log("ClientControleur - ajouterClient - Préparation de la requête d'insertion : $sql");
             // Exécution de la requête
-            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute]);
+            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $est_therapeute]);
 
             // Récupérer l'ID du client nouvellement inséré
             $id_client = $conn->lastInsertId();
@@ -209,7 +196,7 @@ class ClientControleur
             $localite = isset($dataArray['localite']) ? $dataArray['localite'] : '';
             $telephone = isset($dataArray['telephone']) ? $dataArray['telephone'] : '';
             $email = isset($dataArray['email']) ? $dataArray['email'] : '';
-            $estTherapeute = isset($dataArray['estTherapeute']) ? ($dataArray['estTherapeute'] ? 1 : 0) : 0;
+            $est_therapeute = isset($dataArray['est_therapeute']) ? ($dataArray['est_therapeute'] ? 1 : 0) : 0;
             // Validation du code_postal (seulement si pas null)
             if ($code_postal !== null && (!is_numeric($code_postal) || strlen($code_postal) > 5)) {
                 throw new Exception('Code postal invalide');
@@ -218,12 +205,12 @@ class ClientControleur
             // Préparation de la requête de mise à jour
             $sql = "UPDATE client 
                     SET titre = ?, nom = ?, prenom = ?, rue = ?, numero = ?, 
-                        code_postal = ?, localite = ?, telephone = ?, email = ?, estTherapeute = ? 
+                        code_postal = ?, localite = ?, telephone = ?, email = ?, est_therapeute = ? 
                     WHERE id = ?";
             $stmt = $conn->prepare($sql);
 
             // Exécution de la requête
-            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $estTherapeute, $id_client]);
+            $stmt->execute([$titre, $nom, $prenom, $rue, $numero, $code_postal, $localite, $telephone, $email, $est_therapeute, $id_client]);
 
             return [
                 "message" => "Client mis à jour avec succès",

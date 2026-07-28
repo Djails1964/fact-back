@@ -100,7 +100,12 @@ class AuthentificationControleur {
             foreach ($allowedFields as $field) {
                 if (isset($data[$field])) {
                     $updateFields[] = "$field = ?";
-                    $updateValues[] = $data[$field];
+                    // Normaliser compte_actif en entier (0/1)
+                    if ($field === 'compte_actif') {
+                        $updateValues[] = toTinyInt($data[$field]);
+                    } else {
+                        $updateValues[] = $data[$field];
+                    }
                 }
             }
             

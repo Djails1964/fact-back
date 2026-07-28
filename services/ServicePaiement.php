@@ -8,6 +8,13 @@
  */
 
 require_once realpath(__DIR__ . '/../controllers/PaiementControleur.php');
+// ✅ Requis par PaiementControleur::enregistrerPaiement/modifierPaiement/
+// annulerPaiement/supprimerPaiement, qui appellent
+// FactureControleur::recalculerCascadeMensuelle() pour les confirmations
+// de paiement (contrats au forfait) — sans ce require, "Class
+// FactureControleur not found" dès qu'un paiement est enregistré sur une
+// facture liée à une confirmation.
+require_once realpath(__DIR__ . '/../controllers/FactureControleur.php');
 require_once realpath(__DIR__ . '/ActivityLogger.php');
 require_once realpath(__DIR__ . '/../constants/ActivityLogsConstants.php');
 
@@ -55,8 +62,6 @@ class ServicePaiement
             }
 
             $id_facture      = isset($data['id_facture'])      && $data['id_facture']      !== '' ? intval($data['id_facture'])      : null;
-            $id_loyer        = isset($data['id_loyer'])        && $data['id_loyer']        !== '' ? intval($data['id_loyer'])        : null;
-            $id_loyer_detail = isset($data['id_loyer_detail']) && $data['id_loyer_detail'] !== '' ? intval($data['id_loyer_detail']) : null;
 
             // Récupérer le nom du client pour le log
             $stmtClient = $this->conn->prepare("SELECT CONCAT(prenom, ' ', nom) as nom_client FROM client WHERE id = ?");
@@ -70,20 +75,6 @@ class ServicePaiement
                 $factureInfo = PaiementControleur::getFactureInfoPourLog($this->conn, $id_facture);
             }
 
-            // Infos loyer pour le log — seulement si loyer fourni
-            $loyerInfo = null;
-            if ($id_loyer) {
-                $stmtLoyer = $this->conn->prepare(
-                    "SELECT l.numero_loyer,
-                            ld.id AS id_loyer_detail,
-                            CONCAT(ld.mois, ' ', ld.annee) AS mois_label
-                     FROM loyer l
-                     LEFT JOIN loyer_detail ld ON ld.id = ?
-                     WHERE l.id_loyer = ?"
-                );
-                $stmtLoyer->execute([$id_loyer_detail, $id_loyer]);
-                $loyerInfo = $stmtLoyer->fetch(PDO::FETCH_ASSOC) ?: null;
-            }
             
             $resultat = PaiementControleur::enregistrerPaiement($this->conn, $id_facture, $data);
             error_log("ServicePaiement::creerPaiement - Résultat de l'enregistrement: " . json_encode($resultat));
@@ -92,12 +83,9 @@ class ServicePaiement
                 throw new Exception($resultat['message']);
             }
             
-            // Description adaptée : facture, loyer ou libre
+            // Description adaptée : facture ou libre
             if ($factureInfo) {
                 $description = "Nouveau paiement #{$resultat['numero_paiement']} pour la facture {$factureInfo['numero_facture']} ({$nomClient})";
-            } elseif ($loyerInfo) {
-                $moisLabel = $loyerInfo['mois_label'] ?? "détail #{$id_loyer_detail}";
-                $description = "Nouveau paiement #{$resultat['numero_paiement']} — loyer {$loyerInfo['numero_loyer']} · {$moisLabel} ({$nomClient})";
             } else {
                 $description = "Nouveau paiement libre #{$resultat['numero_paiement']} pour le client {$nomClient} (sans facture)";
             }
@@ -116,10 +104,6 @@ class ServicePaiement
                     'client_nom'       => $nomClient,
                     'id_facture'       => $id_facture,
                     'numero_facture'   => $factureInfo['numero_facture'] ?? null,
-                    'id_loyer'         => $id_loyer,
-                    'id_loyer_detail'  => $id_loyer_detail,
-                    'numero_loyer'     => $loyerInfo['numero_loyer'] ?? null,
-                    'mois_loyer'       => $loyerInfo['mois_label']   ?? null,
                     'montant_paye'     => floatval($data['montant_paye']),
                     'methode_paiement' => $data['methode_paiement'],
                     'date_paiement'    => $data['date_paiement'],

@@ -165,12 +165,12 @@ class ServiceLoyer {
                         'avant' => [
                             'periode_debut' => $loyerAvant['periode_debut'],
                             'periode_fin' => $loyerAvant['periode_fin'],
-                            'montant_total' => $loyerAvant['montant_total']
+                            'montant_total' => $loyerAvant['loyer_montant_total']
                         ],
                         'apres' => [
                             'periode_debut' => $data['periode_debut'],
                             'periode_fin' => $data['periode_fin'],
-                            'montant_total' => $data['montant_total']
+                            'montant_total' => $data['loyer_montant_total']
                         ]
                     ]
                 ],

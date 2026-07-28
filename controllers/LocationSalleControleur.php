@@ -33,11 +33,43 @@ class LocationSalleControleur
                     lsc.id                              AS id_contrat,
                     lsc.id_client,
                     CONCAT(c.prenom, ' ', c.nom)        AS nom_client,
+                    c.est_therapeute,
                     lsc.annee,
+                    lsc.motif,
+                    lsc.id_salle,
+                    s.nom                               AS nom_salle,
+                    lsc.id_type_contrat,
+                    tcl.nom                             AS nom_type_contrat,
+                    tcl.est_forfait,
+                    tcl.type_client_requis,
+                    tcl.categorie_motifs,
                     lsc.created_at,
-                    lsc.updated_at
+                    lsc.updated_at,
+                    f.id_facture,
+                    -- ✅ Facture directement liée à la location (plus de loyer
+                    -- intermédiaire) : verrouillée si son état ne permet plus la
+                    -- modification (paiement reçu, envoyée...). Vocabulaire
+                    -- d'état différent selon le type de contrat — voir
+                    -- ServiceLocationSalle::verifierFactureModifiable(), qui
+                    -- applique la même distinction côté validation réelle.
+                    CASE
+                        WHEN f.id_facture IS NULL THEN 0
+                        WHEN tcl.est_forfait = 1 AND f.etat NOT IN ('Non payé') THEN 1
+                        WHEN (tcl.est_forfait = 0 OR tcl.est_forfait IS NULL) AND f.etat NOT IN ('En attente', 'Éditée') THEN 1
+                        ELSE 0
+                    END                                  AS facture_verrouille,
+                    CASE
+                        WHEN f.id_facture IS NULL THEN NULL
+                        WHEN tcl.est_forfait = 1 AND f.etat NOT IN ('Non payé') THEN 'facture'
+                        WHEN (tcl.est_forfait = 0 OR tcl.est_forfait IS NULL) AND f.etat NOT IN ('En attente', 'Éditée') THEN 'facture'
+                        ELSE NULL
+                    END                                  AS facture_verrouille_raison,
+                    f.etat                               AS facture_etat
                 FROM location_salle_contrat lsc
                 JOIN client c ON c.id = lsc.id_client
+                LEFT JOIN salle s ON s.id = lsc.id_salle
+                LEFT JOIN type_contrat_location tcl ON tcl.id = lsc.id_type_contrat
+                LEFT JOIN facture f ON f.id_contrat_location = lsc.id
                 WHERE lsc.annee = ?
                 ORDER BY c.nom ASC, c.prenom ASC
             ";
@@ -52,25 +84,29 @@ class LocationSalleControleur
     }
 
     /**
-     * Crée un contrat (ajoute un client au tableau d'une année).
-     * Idempotent : si le contrat existe déjà, retourne son id sans erreur.
+     * Crée un contrat de location pour un client/année/salle/type.
+     * Non-idempotent : lève une exception si le couple (client, annee, salle) existe déjà.
      *
      * @param PDO      $conn
      * @param int      $id_client
      * @param int      $annee
      * @param int|null $userId
+     * @param int|null $id_salle
+     * @param int|null $id_type_contrat
      * @return array  ['success' => true, 'id' => int, 'created' => bool]
      */
-    public static function creerContrat(PDO $conn, int $id_client, int $annee, ?int $userId = null): array
-    {
+    public static function creerContrat(
+        PDO $conn, int $id_client, int $annee,
+        ?int $userId = null, ?int $id_salle = null, ?int $id_type_contrat = null
+    ): array {
         try {
             $stmt = $conn->prepare("
                 INSERT INTO location_salle_contrat
-                    (id_client, annee, created_by, updated_by)
+                    (id_client, annee, id_salle, id_type_contrat, created_by, updated_by)
                 VALUES
-                    (?, ?, ?, ?)
+                    (?, ?, ?, ?, ?, ?)
             ");
-            $stmt->execute([$id_client, $annee, $userId, $userId]);
+            $stmt->execute([$id_client, $annee, $id_salle, $id_type_contrat, $userId, $userId]);
 
             return [
                 'success' => true,
@@ -80,6 +116,11 @@ class LocationSalleControleur
             ];
 
         } catch (PDOException $e) {
+            if ($e->getCode() === '23000') {
+                throw new Exception(
+                    'Un contrat de location existe déjà pour ce client, cette salle et cette année.'
+                );
+            }
             error_log("LocationSalleControleur::creerContrat - " . $e->getMessage());
             throw new Exception("Erreur lors de l'ajout du contrat");
         }
@@ -135,11 +176,11 @@ class LocationSalleControleur
                     lsc.id_client,
                     CONCAT(c.prenom, ' ', c.nom)    AS nom_client,
                     lsc.annee,
+                    lsc.motif,
                     lsd.mois,
                     lsd.salle,
                     lsd.id_unite,
                     lsd.id_service,
-                    lsd.motif,
                     lsd.description,
                     lsd.dates,
                     lsd.quantite,
@@ -195,11 +236,11 @@ class LocationSalleControleur
                     lsc.id_client,
                     CONCAT(c.prenom, ' ', c.nom)    AS nom_client,
                     lsc.annee,
+                    lsc.motif,
                     lsd.mois,
                     lsd.salle,
                     lsd.id_unite,
                     lsd.id_service,
-                    lsd.motif,
                     lsd.description,
                     lsd.dates,
                     lsd.quantite,
@@ -247,19 +288,49 @@ class LocationSalleControleur
         try {
             self::validerDetail($data);
 
+            // ── Garde mono-location : forfait = une seule location par contrat/mois ──
+            $stmtType = $conn->prepare("
+                SELECT tcl.est_forfait
+                FROM location_salle_contrat lsc
+                JOIN type_contrat_location tcl ON tcl.id = lsc.id_type_contrat
+                WHERE lsc.id = ?
+                LIMIT 1
+            ");
+            $stmtType->execute([(int)$data['id_contrat']]);
+            $estForfait = $stmtType->fetchColumn();
+
+            // Forfait = une seule location par mois
+            if ($estForfait) {
+                $stmtExiste = $conn->prepare("
+                    SELECT COUNT(*) FROM location_salle_detail
+                    WHERE id_contrat = ? AND mois = ?
+                ");
+                $stmtExiste->execute([(int)$data['id_contrat'], (int)$data['mois']]);
+                if ((int)$stmtExiste->fetchColumn() > 0) {
+                    throw new Exception(
+                        'Ce contrat au forfait ne permet qu\'une seule location par mois. Utilisez la modification.'
+                    );
+                }
+            }
+
             $stmt = $conn->prepare("
                 INSERT INTO location_salle_detail
-                    (id_contrat, mois, salle, id_unite, id_service, motif, description, dates, quantite, duree, nb_seances, created_by, updated_by)
+                    (id_contrat, mois, salle, id_unite, id_service, description, dates, quantite, duree, nb_seances, created_by, updated_by)
                 VALUES
-                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
+            // Mettre à jour le motif sur le contrat si fourni
+            if (!empty($data['motif'])) {
+                $stmtMotif = $conn->prepare("UPDATE location_salle_contrat SET motif = ? WHERE id = ?");
+                $stmtMotif->execute([$data['motif'], (int)$data['id_contrat']]);
+            }
+
             $stmt->execute([
                 (int)   $data['id_contrat'],
                 (int)   $data['mois'],
                         $data['salle'],
                         isset($data['id_unite'])   ? (int)$data['id_unite']   : null,
                         isset($data['id_service']) ? (int)$data['id_service'] : null,
-                        $data['motif']       ?? null,
                         $data['description'] ?? null,
                         isset($data['dates']) && is_array($data['dates'])
                             ? json_encode($data['dates'])
@@ -308,7 +379,7 @@ class LocationSalleControleur
                     salle         = ?,
                     id_unite      = ?,
                     id_service    = ?,
-                    motif         = ?,
+
                     description   = ?,
                     dates         = ?,
                     quantite      = ?,
@@ -322,7 +393,6 @@ class LocationSalleControleur
                         $data['salle'],
                         isset($data['id_unite'])   ? (int)$data['id_unite']   : null,
                         isset($data['id_service']) ? (int)$data['id_service'] : null,
-                        $data['motif']       ?? null,
                         $data['description'] ?? null,
                         isset($data['dates']) && is_array($data['dates'])
                             ? json_encode($data['dates'])
@@ -333,6 +403,12 @@ class LocationSalleControleur
                         $data['updated_by'] ?? null,
                 $id,
             ]);
+
+            // Mettre à jour le motif sur le contrat si fourni
+            if (!empty($data['motif']) && !empty($data['id_contrat'])) {
+                $stmtMotif = $conn->prepare("UPDATE location_salle_contrat SET motif = ? WHERE id = ?");
+                $stmtMotif->execute([$data['motif'], (int)$data['id_contrat']]);
+            }
 
             // rowCount() === 0 peut signifier "aucune valeur modifiée" (navigation sans changement)
             // On vérifie plutôt que l'enregistrement existe

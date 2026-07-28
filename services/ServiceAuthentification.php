@@ -358,6 +358,11 @@ class ServiceAuthentification {
                 ];
             }
             
+            // Normaliser compte_actif en entier avant toute mise à jour
+            if (isset($userData['compte_actif'])) {
+                $userData['compte_actif'] = toTinyInt($userData['compte_actif']);
+            }
+
             // Mise à jour de l'utilisateur
             $resultat = AuthentificationControleur::modifierUtilisateur($this->conn, $id, $userData);
             

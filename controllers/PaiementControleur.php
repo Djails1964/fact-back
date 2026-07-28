@@ -27,30 +27,9 @@ class PaiementControleur
         try {
             $sql = "SELECT p.*, 
                            f.numero_facture, f.montant_total, f.ristourne,
-                           CONCAT(c.prenom, ' ', c.nom) as nom_client,
-                           l.numero_loyer,
-                           l.periode_debut,
-                           l.periode_fin,
-                           l.duree_mois,
-                           l.montant_total        AS loyer_montant_total,
-                           l.montant_mensuel_moyen,
-                           l.statut               AS loyer_statut,
-                           ld.mois                AS loyer_mois,
-                           ld.numero_mois         AS loyer_numero_mois,
-                           ld.annee               AS loyer_annee,
-                           ld.montant             AS loyer_detail_montant,
-                           COALESCE(
-                               (SELECT SUM(p2.montant_paye) FROM paiement p2
-                                WHERE p2.id_loyer = l.id_loyer AND p2.statut = 'confirme'), 0
-                           ) AS loyer_montant_paye,
-                           COALESCE(
-                               (SELECT SUM(p3.montant_paye) FROM paiement p3
-                                WHERE p3.id_loyer_detail = ld.id AND p3.statut = 'confirme'), 0
-                           ) AS loyer_detail_paye
+                           CONCAT(c.prenom, ' ', c.nom) as nom_client
                     FROM paiement p
                     LEFT JOIN facture f ON p.id_facture = f.id_facture
-                    LEFT JOIN loyer l ON p.id_loyer = l.id_loyer
-                    LEFT JOIN loyer_detail ld ON p.id_loyer_detail = ld.id
                     JOIN client c ON p.id_client = c.id
                     WHERE p.id_paiement = ?";
 
@@ -181,7 +160,13 @@ class PaiementControleur
                 }
 
                 // Vérifier que le paiement ne dépasse pas le montant restant
-                $montant_total   = floatval($facture['montant_total']) - floatval($facture['ristourne']);
+                // ✅ montant_total est déjà net (montant_brut - ristourne, cf.
+                // FactureControleur::modifierAttributsLimitesConfirmation et
+                // le calcul équivalent pour les factures standard) — ne pas
+                // resoustraire la ristourne ici, sous peine de la déduire deux
+                // fois (bug : rejetait un paiement soldant exactement la
+                // facture, à hauteur du montant de la ristourne).
+                $montant_total   = floatval($facture['montant_total']);
                 $montant_deja_paye = floatval($facture['montant_paye_total']);
                 $montant_restant = $montant_total - $montant_deja_paye;
 
@@ -191,72 +176,16 @@ class PaiementControleur
 
             }
 
-            // ── Champs loyer (optionnels) ─────────────────────────────────────────
-            $id_loyer        = isset($data['id_loyer'])        && $data['id_loyer']        !== '' ? intval($data['id_loyer'])        : null;
-            $id_loyer_detail = isset($data['id_loyer_detail']) && $data['id_loyer_detail'] !== '' ? intval($data['id_loyer_detail']) : null;
-
-            // Cohérence : facture et loyer sont mutuellement exclusifs
-            if ($id_facture && $id_loyer) {
-                throw new Exception('Un paiement ne peut pas concerner à la fois une facture et un loyer');
-            }
-
-            if ($id_loyer) {
-                // Vérifier que le loyer existe et appartient au client
-                $stmtLoyer = $conn->prepare(
-                    "SELECT id_loyer, id_client AS loyer_id_client FROM loyer WHERE id_loyer = ?"
-                );
-                $stmtLoyer->execute([$id_loyer]);
-                $loyer = $stmtLoyer->fetch(PDO::FETCH_ASSOC);
-
-                if (!$loyer) {
-                    throw new Exception('Loyer non trouvé');
-                }
-                if ((int)$loyer['loyer_id_client'] !== $id_client) {
-                    throw new Exception("Le loyer n'appartient pas au client sélectionné");
-                }
-
-                if ($id_loyer_detail) {
-                    // Vérifier le détail mensuel et calculer le solde restant
-                    $stmtDetail = $conn->prepare(
-                        "SELECT ld.id, ld.montant AS loyer_detail_montant
-                         FROM loyer_detail ld
-                         WHERE ld.id = ? AND ld.id_loyer = ?"
-                    );
-                    $stmtDetail->execute([$id_loyer_detail, $id_loyer]);
-                    $detail = $stmtDetail->fetch(PDO::FETCH_ASSOC);
-
-                    if (!$detail) {
-                        throw new Exception("Détail loyer introuvable ou n'appartient pas à ce loyer");
-                    }
-
-                    $stmtSolde = $conn->prepare(
-                        "SELECT COALESCE(SUM(montant_paye), 0) AS total_paye
-                         FROM paiement
-                         WHERE id_loyer_detail = ? AND statut != 'annule'"
-                    );
-                    $stmtSolde->execute([$id_loyer_detail]);
-                    $dejaPayé     = floatval($stmtSolde->fetch(PDO::FETCH_ASSOC)['total_paye']);
-                    $soldeRestant = round(floatval($detail['loyer_detail_montant']) - $dejaPayé, 2);
-
-                    if ($montant_paye > $soldeRestant + 0.005) {
-                        throw new Exception(
-                            "Le montant payé ({$montant_paye} CHF) dépasse le solde restant ({$soldeRestant} CHF)"
-                        );
-                    }
-                }
-            }
-
-            // Insérer le paiement (id_facture, id_loyer, id_loyer_detail peuvent être NULL)
+            // ✅ Insérer le paiement (les champs loyer ont été retirés de la
+            // table paiement — migration 042, plus de loyer intermédiaire)
             $sqlPaiement = "INSERT INTO paiement 
-                           (id_client, id_facture, id_loyer, id_loyer_detail,
+                           (id_client, id_facture,
                             date_paiement, montant_paye, methode_paiement, commentaire, numero_paiement, statut) 
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirme')";
+                           VALUES (?, ?, ?, ?, ?, ?, ?, 'confirme')";
             $stmtPaiement = $conn->prepare($sqlPaiement);
             $stmtPaiement->execute([
                 $id_client,
-                $id_facture,        // NULL si paiement loyer ou libre
-                $id_loyer,          // NULL si paiement facture ou libre
-                $id_loyer_detail,   // NULL si pas de détail mensuel
+                $id_facture,        // NULL si paiement libre
                 $data['date_paiement'],
                 $montant_paye,
                 $data['methode_paiement'],
@@ -266,17 +195,21 @@ class PaiementControleur
 
             $id_paiement = $conn->lastInsertId();
 
-            // Les triggers gèrent automatiquement :
-            //   - facture : montant_paye_total, montant_restant, etat
-            //   - loyer   : loyer_detail.est_paye, loyer.etat_paiement
+            // Le trigger gère automatiquement les totaux/état de la facture
+            // (montant_paye_total, montant_restant, etat). La cascade mensuelle
+            // (confirmations de paiement) est recalculée explicitement ici : c'est
+            // un algorithme à deux niveaux (mois × paiements) trop complexe pour
+            // un trigger — ne fait rien si la facture n'a pas de détail mensuel
+            // (facture standard à l'utilisation).
+            if ($id_facture) {
+                FactureControleur::recalculerCascadeMensuelle($conn, $id_facture);
+            }
 
             return [
                 'success'          => true,
                 'message'          => 'Paiement enregistré avec succès',
                 'id_paiement'      => $id_paiement,
                 'numero_paiement'  => $numero_paiement,
-                'id_loyer'         => $id_loyer,
-                'id_loyer_detail'  => $id_loyer_detail,
             ];
 
         } catch (PDOException $e) {
@@ -292,30 +225,9 @@ class PaiementControleur
             error_log("Récupération du paiement avec ID: " . $id_paiement);
             $sql = "SELECT p.*, 
                            f.numero_facture, f.montant_total, f.ristourne,
-                           CONCAT(c.prenom, ' ', c.nom) as nom_client,
-                           l.numero_loyer,
-                           l.periode_debut,
-                           l.periode_fin,
-                           l.duree_mois,
-                           l.montant_total        AS loyer_montant_total,
-                           l.montant_mensuel_moyen,
-                           l.statut               AS loyer_statut,
-                           ld.mois                AS loyer_mois,
-                           ld.numero_mois         AS loyer_numero_mois,
-                           ld.annee               AS loyer_annee,
-                           ld.montant             AS loyer_detail_montant,
-                           COALESCE(
-                               (SELECT SUM(p2.montant_paye) FROM paiement p2
-                                WHERE p2.id_loyer = l.id_loyer AND p2.statut = 'confirme'), 0
-                           ) AS loyer_montant_paye,
-                           COALESCE(
-                               (SELECT SUM(p3.montant_paye) FROM paiement p3
-                                WHERE p3.id_loyer_detail = ld.id AND p3.statut = 'confirme'), 0
-                           ) AS loyer_detail_paye
+                           CONCAT(c.prenom, ' ', c.nom) as nom_client
                     FROM paiement p
                     LEFT JOIN facture f ON p.id_facture = f.id_facture
-                    LEFT JOIN loyer l ON p.id_loyer = l.id_loyer
-                    LEFT JOIN loyer_detail ld ON p.id_loyer_detail = ld.id
                     JOIN client c ON p.id_client = c.id
                     WHERE p.id_paiement = ?";
 
@@ -349,18 +261,15 @@ class PaiementControleur
     {
         try {
             // Construction de la requête de base
+            // ✅ Colonnes/jointures loyer retirées (supprimées, migration 042)
             $sql = "SELECT p.id_paiement, p.date_paiement, p.montant_paye, p.methode_paiement, 
                         p.commentaire, p.numero_paiement, p.date_creation, p.statut,
                         p.date_annulation, p.motif_annulation,
-                        p.id_client, p.id_loyer, p.id_loyer_detail,
+                        p.id_client,
                         f.id_facture, f.numero_facture, f.montant_total, f.ristourne,
-                        l.numero_loyer,
-                        l.periode_debut,
-                        l.periode_fin,
                         CONCAT(c.prenom, ' ', c.nom) as nom_client
                     FROM paiement p
                     LEFT JOIN facture f  ON p.id_facture    = f.id_facture
-                    LEFT JOIN loyer   l  ON p.id_loyer      = l.id_loyer
                     JOIN  client      c  ON p.id_client     = c.id
                     WHERE 1=1"; // Inclure tous les paiements (confirmés et annulés)
 
@@ -398,9 +307,9 @@ class PaiementControleur
                 $params[] = $options['id_client'];
             }
 
-            // Paiements libres : non rattachés à une facture ni à un loyer, avec solde > 0
+            // Paiements libres : non rattachés à une facture, avec solde > 0
             if (!empty($options['libre'])) {
-                $sql .= " AND p.id_facture IS NULL AND p.id_loyer IS NULL AND p.montant_paye > 0";
+                $sql .= " AND p.id_facture IS NULL AND p.montant_paye > 0";
             }
 
             if (!empty($options['id_facture'])) {
@@ -419,7 +328,6 @@ class PaiementControleur
             // Compter le total avant pagination
             $sqlCount = "SELECT COUNT(*) as total FROM paiement p
                         LEFT JOIN facture f ON p.id_facture = f.id_facture
-                        LEFT JOIN loyer   l ON p.id_loyer   = l.id_loyer
                         JOIN  client      c ON p.id_client  = c.id
                         WHERE 1=1";
 
@@ -446,7 +354,7 @@ class PaiementControleur
                 $countParams[] = $options['id_client'];
             }
             if (!empty($options['libre'])) {
-                $sqlCount .= " AND p.id_facture IS NULL AND p.id_loyer IS NULL AND p.montant_paye > 0";
+                $sqlCount .= " AND p.id_facture IS NULL AND p.montant_paye > 0";
             }
             if (!empty($options['id_facture'])) {
                 $sqlCount .= " AND f.id_facture = ?";
@@ -642,6 +550,10 @@ class PaiementControleur
                                      WHERE id_facture = ?";
                 $stmtUpdateFacture = $conn->prepare($sqlUpdateFacture);
                 $stmtUpdateFacture->execute([$paiement['id_facture']]);
+
+                // ✅ Recalculer la cascade mensuelle (confirmations de paiement)
+                // — ne fait rien si la facture n'a pas de détail mensuel.
+                FactureControleur::recalculerCascadeMensuelle($conn, $paiement['id_facture']);
             }
 
             return [
@@ -683,6 +595,13 @@ class PaiementControleur
             $stmtDelete = $conn->prepare($sqlDelete);
             $stmtDelete->execute([$id_paiement]);
 
+            // ✅ Recalculer la cascade mensuelle (confirmations de paiement)
+            // — ne fait rien si la facture n'a pas de détail mensuel. Le
+            // trigger AFTER DELETE a déjà recalculé les totaux de la facture.
+            if ($paiement['id_facture']) {
+                FactureControleur::recalculerCascadeMensuelle($conn, $paiement['id_facture']);
+            }
+
             return [
                 'success' => true,
                 'message' => 'Paiement supprimé avec succès',
@@ -712,10 +631,12 @@ class PaiementControleur
                         f.montant_restant,
                         f.nb_paiements,
                         f.date_dernier_paiement,
-                        (f.montant_total - f.ristourne) as montant_net,
+                        -- ✅ montant_total est déjà net (montant_brut - ristourne) —
+                        -- ne pas resoustraire ristourne (même bug que ligne ~163).
+                        f.montant_total as montant_net,
                         CASE 
                             WHEN f.montant_restant <= 0 THEN 100
-                            ELSE ROUND((f.montant_paye_total / (f.montant_total - f.ristourne)) * 100, 2)
+                            ELSE ROUND((f.montant_paye_total / f.montant_total) * 100, 2)
                         END as pourcentage_paye
                     FROM facture f
                     WHERE f.id_facture = ?";
@@ -776,7 +697,8 @@ class PaiementControleur
                 $stmtFacture->execute([$id_facture]);
                 $facture = $stmtFacture->fetch(PDO::FETCH_ASSOC);
 
-                $montantTotal = floatval($facture['montant_total']) - floatval($facture['ristourne']);
+                // ✅ montant_total est déjà net (voir enregistrerPaiement ci-dessus)
+                $montantTotal = floatval($facture['montant_total']);
                 $montantAutresPaiements = floatval($facture['montant_paye_total']) - $ancienMontant;
                 $montantMaximal = $montantTotal - $montantAutresPaiements;
 
@@ -819,7 +741,14 @@ class PaiementControleur
             $stmt = $conn->prepare($sql);
             $stmt->execute($params);
 
-            // Les triggers se chargent automatiquement de la mise à jour de la facture
+            // Le trigger se charge automatiquement de la mise à jour des
+            // totaux/état de la facture. La cascade mensuelle est recalculée
+            // explicitement (montant_paye ou date_paiement ont pu changer,
+            // ce qui affecte l'allocation FIFO) — ne fait rien si la facture
+            // n'a pas de détail mensuel.
+            if ($paiement['id_facture']) {
+                FactureControleur::recalculerCascadeMensuelle($conn, $paiement['id_facture']);
+            }
 
             return [
                 'success' => true,

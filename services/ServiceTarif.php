@@ -951,10 +951,10 @@ class ServiceTarif {
                 error_log("ServiceTarif::getTarifClient - Aucun tarif spécial trouvé");
                 
                 // 2. PRIORITÉ 2: Vérifier si le client est thérapeute
-                $estTherapeute = $this->tarifControleur->isClientTherapeute($id_client);
-                error_log("ServiceTarif::getTarifClient - Client est thérapeute: " . ($estTherapeute ? 'OUI' : 'NON'));
+                $est_therapeute = $this->tarifControleur->isClientTherapeute($id_client);
+                error_log("ServiceTarif::getTarifClient - Client est thérapeute: " . ($est_therapeute ? 'OUI' : 'NON'));
                 
-                if ($estTherapeute) {
+                if ($est_therapeute) {
                     // Chercher un tarif thérapeute
                     error_log("ServiceTarif::getTarifClient - Étape 2: Recherche tarif thérapeute");
                     $tarifsTherapeuteResult = $this->tarifControleur->getTarifsStandards($id_service, $id_unite, null, $date);
@@ -1019,7 +1019,7 @@ class ServiceTarif {
                 
                 if (!empty($tousLesTarifs)) {
                     // Prioriser thérapeute si client est thérapeute, sinon normal
-                    $typePreferered = $estTherapeute ? 'therapeute' : 'normal';
+                    $typePreferered = $est_therapeute ? 'therapeute' : 'normal';
                     
                     $tarifPrefered = null;
                     $tarifFallback = null;
@@ -1067,13 +1067,13 @@ class ServiceTarif {
         }
     }
 
-    public function estTherapeute($id_client) {
+    public function est_therapeute($id_client) {
         if ($this->useNewTarifController) {
             try {
                 $result = $this->tarifControleur->isClientTherapeute($id_client);
                 return [
                     'success' => true,
-                    'estTherapeute' => $result
+                    'est_therapeute' => $result
                 ];
             } catch (Exception $e) {
                 return [

@@ -3,7 +3,14 @@
 /**
  * FPDILoyerConfirmationGenerator.php
  *
- * Générateur PDF pour les CONFIRMATIONS DE PAIEMENT DE LOYER.
+ * Générateur PDF pour les CONFIRMATIONS DE PAIEMENT (factures générées
+ * depuis une location au forfait — voir facture.est_forfait via
+ * type_contrat_location, et facture_detail_mensuel pour le détail mensuel).
+ * Nom de fichier/classe conservé tel quel (historique "loyer") pour éviter
+ * de casser PDFGeneratorFactory::create('fpdi_loyer') — seul le contenu a
+ * été adapté ; plus aucune référence aux anciennes tables loyer/loyer_detail
+ * (supprimées, migrations 043/046).
+ *
  * Étend AbstractPDFGenerator (PDFBase.php) pour réutiliser :
  *   - genererEnTete()      → logo, date, adresse centre + client, titre
  *   - genererPiedPage()    → coordonnées bancaires, remerciements, signature
@@ -11,22 +18,23 @@
  *   - dateEnFrancais()     → formatage des dates
  *   - sauvegarderPages()   → écriture et fusion PDF
  *
- * Données attendues dans $loyer :
- *   // Champs client (pour l'en-tête)
+ * Données attendues dans $facture (issues de
+ * FactureControleur::getFactureParId, voir ServiceFacture::imprimerFacture) :
+ *   // Champs client (déjà non-suffixés dans getFactureParId)
  *   titre, prenom, nom, rue, numero, code_postal, localite
  *
- *   // Champs loyer
- *   numero_loyer, motif, periode_debut, periode_fin, duree_mois
- *   date_confirmation  (date du document, format Y-m-d)
+ *   // Champs facture
+ *   numero_facture, motif, date_facture, ristourne
  *
- *   // Détails mensuels
- *   details : array de [
- *     mois       (ex: "Janvier 2025"),
- *     montant    (decimal),
- *     est_paye   (0|1),
- *     date_paiement (Y-m-d|null),
- *     montant_paye  (decimal, somme des paiements confirmés)
+ *   // Détail mensuel (facture_detail_mensuel, via details_mensuels[])
+ *   details_mensuels : array de [
+ *     mois (1-12), annee, montant, description, quantite, abreviation_unite,
+ *     est_paye (0|1), date_paiement (Y-m-d|null)
  *   ]
+ *   Période et durée affichées sont déduites de ce tableau (pas de colonne
+ *   dédiée sur facture) ; montant_paye par mois est binaire (montant si
+ *   est_paye, sinon 0 — pas de paiement partiel par mois avec la cascade
+ *   FIFO, contrairement à l'ancien modèle loyer_detail).
  */
 
 require_once 'PDFBase.php';
@@ -52,13 +60,15 @@ class FPDILoyerConfirmationGenerator extends AbstractPDFGenerator {
     }
 
     /**
-     * Génère le contenu spécifique : infos loyer + tableau mensuel 2 colonnes.
+     * Génère le contenu spécifique : infos facture + tableau mensuel 2 colonnes.
      */
     protected function genererContenu(MyFPDI $pdf, array $data, array $params, int $page): void {
         $this->frameStartY = $pdf->GetY();
         $this->frameOpen   = true;
 
-        $afficherDates = (bool)($data['afficher_dates_paiement'] ?? true);
+        // ✅ Pas de colonne dédiée équivalente à l'ancien
+        // loyer.afficher_dates_paiement — toujours affichées.
+        $afficherDates = true;
 
         $this->genererInfosLoyer($pdf, $data);
         $this->genererSeparateur($pdf);
@@ -68,7 +78,7 @@ class FPDILoyerConfirmationGenerator extends AbstractPDFGenerator {
 
         $banque    = $params['banque']    ?? [];
         $signature = $params['signature'] ?? [];
-        // Confirmation loyer : pas de délai de paiement (0)
+        // Confirmation : pas de délai de paiement (0)
         $this->genererPiedPage($pdf, $banque, 0, $signature);
     }
 
@@ -78,15 +88,21 @@ class FPDILoyerConfirmationGenerator extends AbstractPDFGenerator {
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * @param array  $loyer       Données loyer + détails + client
-     * @param string $pdfFileName Nom du fichier (ex: "confirmation_LOY-3-001.pdf")
-     * @param string $outputDir   Ignoré (conservé pour compatibilité interface)
+     * @param array  $facture     Données facture + détails mensuels + client
+     *                            (FactureControleur::getFactureParId)
+     * @param string $pdfFileName Nom du fichier (ex: "ConfirmationPaiement_C-001.2026_....pdf")
+     * @param string $outputDir   Dossier de sortie absolu (calculé par
+     *                            ServiceFacture::imprimerFacture() via
+     *                            confirmations_path()) — si omis, retombe sur
+     *                            confirmations_path('') sans accès aux
+     *                            paramètres personnalisés (cette classe n'a
+     *                            pas de connexion DB).
      * @param array  $banque      Paramètres bancaires (Banque, IBAN, Beneficiaire)
      * @param int    $delai       Ignoré (pas de délai sur une confirmation)
      * @param array  $signature   Paramètres signature (Ligne 1, Ligne 2)
      */
     public function genererPDF(
-        $loyer,
+        $facture,
         $pdfFileName,
         $outputDir          = null,
         $banque             = [],
@@ -94,117 +110,133 @@ class FPDILoyerConfirmationGenerator extends AbstractPDFGenerator {
         $signature          = [],
         $printRistourne     = false
     ) {
-        // $delaiPaiement et $printRistourne ignorés pour les confirmations de loyer
-        error_log("📄 LoyerConfirmationGenerator — génération: $pdfFileName");
+        // $delaiPaiement et $printRistourne ignorés pour les confirmations
+        error_log("📄 ConfirmationGenerator — génération: $pdfFileName");
 
-        // ── Normaliser les données depuis getLoyerParId ───────────────────────
-        $loyer = $this->normaliserDonnees($loyer);
+        // ── Normaliser les données depuis FactureControleur::getFactureParId ──
+        $facture = $this->normaliserDonnees($facture);
 
         $params = ['banque' => $banque, 'signature' => $signature];
         $this->totalPages  = 1;
         $this->currentPage = 1;
 
         // Initialiser le PDF
-        $titre = $this->getTitrePrincipal($loyer) . ' — ' . ($loyer['numero_loyer'] ?? '');
+        $titre = $this->getTitrePrincipal($facture) . ' — ' . ($facture['numero_facture'] ?? '');
         $pdf   = $this->initPDF($titre);
         $this->initDimensionsCadre($pdf);
 
         // En-tête commun
-        $this->genererEnTete($pdf, $loyer);
+        $this->genererEnTete($pdf, $facture);
 
-        // Contenu spécifique loyer
-        $this->genererContenu($pdf, $loyer, $params, 1);
+        // Contenu spécifique confirmation
+        $this->genererContenu($pdf, $facture, $params, 1);
 
         // Numérotation (1/1)
         $this->ajouterNumerotation($pdf);
 
-        return $this->sauvegarderPages([$pdf], $pdfFileName);
+        // ✅ Dossier de sortie dédié aux confirmations (distinct des
+        // factures standard) — reçu de ServiceFacture::imprimerFacture(),
+        // qui l'a calculé via confirmations_path($conn) (paramètre
+        // personnalisable). Repli sur la valeur par défaut si jamais appelé
+        // sans ce paramètre (cette classe n'a pas de connexion DB).
+        return $this->sauvegarderPages([$pdf], $pdfFileName, $outputDir ?? confirmations_path(''));
     }
 
 
     // ═══════════════════════════════════════════════════════════════
-    //  MÉTHODES PRIVÉES — contenu spécifique loyer
+    //  MÉTHODES PRIVÉES — contenu spécifique confirmation
     // ═══════════════════════════════════════════════════════════════
 
     /**
-     * Normalise les données reçues de LoyerControleur::getLoyerParId
+     * Normalise les données reçues de FactureControleur::getFactureParId
      * vers le format interne attendu par le générateur.
      *
-     * getLoyerParId retourne :
-     *   - prenom_client, nom_client, titre_client (au lieu de prenom, nom, titre)
-     *   - rue_client, numero_client, code_postal_client, localite_client
-     *   - montants_mensuels[] avec : loyer_mois, loyer_detail_montant, loyer_numero_mois
-     *     et paiements[] contenant les paiements effectués
+     * getFactureParId retourne déjà prenom/nom/titre/rue/numero/code_postal/
+     * localite non-suffixés (join direct sur client, pas d'ambiguïté) — pas
+     * de renommage nécessaire côté client, contrairement à l'ancien
+     * getLoyerParId. Le détail mensuel arrive dans details_mensuels[].
      */
-    private function normaliserDonnees(array $loyer): array {
-        // ── Champs client ─────────────────────────────────────────────────────
-        if (!isset($loyer['prenom'])) {
-            $loyer['prenom'] = $loyer['prenom_client'] ?? '';
-        }
-        if (!isset($loyer['nom'])) {
-            $loyer['nom'] = $loyer['nom_client'] ?? '';
-        }
-        if (!isset($loyer['titre'])) {
-            $loyer['titre'] = $loyer['titre_client'] ?? '';
-        }
-        if (!isset($loyer['rue'])) {
-            $loyer['rue'] = $loyer['rue_client'] ?? '';
-        }
-        if (!isset($loyer['numero'])) {
-            $loyer['numero'] = $loyer['numero_client'] ?? '';
-        }
-        if (!isset($loyer['code_postal'])) {
-            $loyer['code_postal'] = $loyer['code_postal_client'] ?? '';
-        }
-        if (!isset($loyer['localite'])) {
-            $loyer['localite'] = $loyer['localite_client'] ?? '';
-        }
-
+    private function normaliserDonnees(array $facture): array {
         // ── Date du document ──────────────────────────────────────────────────
-        if (!isset($loyer['date_document'])) {
-            $loyer['date_document'] = $loyer['date_confirmation']
-                ?? $loyer['date_creation_loyer']
-                ?? date('Y-m-d');
+        if (!isset($facture['date_document'])) {
+            $facture['date_document'] = $facture['date_facture'] ?? date('Y-m-d');
         }
 
         // ── Normaliser les détails mensuels ───────────────────────────────────
-        // getLoyerParId stocke sous 'montants_mensuels' avec des alias différents
-        $source = $loyer['details'] ?? $loyer['montants_mensuels'] ?? [];
+        $source = $facture['details'] ?? $facture['details_mensuels'] ?? [];
+
+        $nomsMois = [
+            1 => 'Janvier', 2 => 'Février', 3 => 'Mars', 4 => 'Avril',
+            5 => 'Mai', 6 => 'Juin', 7 => 'Juillet', 8 => 'Août',
+            9 => 'Septembre', 10 => 'Octobre', 11 => 'Novembre', 12 => 'Décembre'
+        ];
 
         $details = [];
         foreach ($source as $d) {
-            // Calculer montant_paye depuis la liste des paiements associés
-            $montantPaye = 0;
-            if (!empty($d['paiements']) && is_array($d['paiements'])) {
-                foreach ($d['paiements'] as $p) {
-                    $montantPaye += floatval($p['montant_paye'] ?? 0);
-                }
-            } elseif (isset($d['montant_paye'])) {
-                $montantPaye = floatval($d['montant_paye']);
-            }
+            $numeroMois = (int) ($d['mois'] ?? 0);
+            $annee      = $d['annee'] ?? '';
+            $estPaye    = (bool) ($d['est_paye'] ?? false);
+            $montant    = floatval($d['montant'] ?? 0);
 
             $details[] = [
-                'id_loyer_detail' => $d['id_loyer_detail'] ?? null,
-                // Nom du mois : loyer_mois (alias getLoyerParId) ou mois
-                'mois'           => $d['loyer_mois']         ?? $d['mois']    ?? '',
-                'numero_mois'    => $d['loyer_numero_mois']  ?? $d['numero_mois'] ?? 0,
-                'annee'          => $d['loyer_annee']         ?? $d['annee']   ?? '',
-                // Montant DÛ : loyer_detail_montant (alias getLoyerParId) ou montant
-                'montant'        => floatval($d['loyer_detail_montant'] ?? $d['montant'] ?? 0),
-                'est_paye'       => (bool)($d['est_paye'] ?? false),
+                'id_detail'      => $d['id_detail'] ?? null,
+                'mois'           => trim(($nomsMois[$numeroMois] ?? '') . ' ' . $annee),
+                'numero_mois'    => $numeroMois,
+                'annee'          => $annee,
+                'montant'        => $montant,
+                'quantite'       => isset($d['quantite']) && $d['quantite'] !== null ? floatval($d['quantite']) : null,
+                'description'    => $d['description'] ?? null,
+                'est_paye'       => $estPaye,
                 'date_paiement'  => $d['date_paiement'] ?? null,
-                'montant_paye'   => $montantPaye,
+                // ✅ Pas de paiement partiel par mois avec la cascade FIFO
+                // (facture_detail_mensuel.est_paye est binaire) : le montant
+                // payé d'un mois est soit son montant complet, soit 0.
+                'montant_paye'   => $estPaye ? $montant : 0,
             ];
         }
-        $loyer['details'] = $details;
+        $facture['details'] = $details;
 
-        error_log("📊 normaliserDonnees: " . count($details) . " mois, client: {$loyer['prenom']} {$loyer['nom']}");
+        // ── Description commune (un seul champ, partagé par tous les mois —
+        // voir FactureForm.jsx côté frontend) ─────────────────────────────────
+        $facture['detail_description'] = $details[0]['description'] ?? null;
 
-        return $loyer;
+        // ── Tarif unitaire : montant / quantité du premier mois qualifiant ────
+        $facture['tarif_unitaire']    = null;
+        $facture['tarif_abreviation'] = null;
+        foreach ($details as $d) {
+            if (!empty($d['quantite']) && $d['quantite'] > 0 && $d['montant'] > 0) {
+                $facture['tarif_unitaire'] = round($d['montant'] / $d['quantite'], 2);
+                break;
+            }
+        }
+        foreach ($source as $raw) {
+            if (!empty($raw['abreviation_unite'])) {
+                $facture['tarif_abreviation'] = $raw['abreviation_unite'];
+                break;
+            }
+        }
+
+        // ── Période et durée : déduites du détail mensuel (pas de colonne
+        // dédiée sur facture, contrairement à l'ancien loyer) ─────────────────
+        if (!empty($details)) {
+            $premier = $details[0];
+            $dernier = $details[count($details) - 1];
+            $facture['periode_debut_label'] = $premier['mois'];
+            $facture['periode_fin_label']   = $dernier['mois'];
+            $facture['duree_mois']          = count($details);
+        } else {
+            $facture['periode_debut_label'] = '';
+            $facture['periode_fin_label']   = '';
+            $facture['duree_mois']          = 0;
+        }
+
+        error_log("📊 normaliserDonnees: " . count($details) . " mois, client: {$facture['prenom']} {$facture['nom']}");
+
+        return $facture;
     }
 
     /**
-     * Bloc d'informations générales du loyer (4 lignes + optionnel statut).
+     * Bloc d'informations générales de la confirmation (4 lignes + optionnel statut).
      */
     private function genererInfosLoyer(MyFPDI $pdf, array $data): void {
         $pdf->SetFont($this->fontRegular, '', 10);
@@ -227,17 +259,33 @@ class FPDILoyerConfirmationGenerator extends AbstractPDFGenerator {
         $pdf->Cell($valW,   $lineH, $data['motif'] ?? 'location d\'un cabinet', 0, 1, 'L');
         $pdf->SetX($startX);
 
-        // Période
-        $debut = isset($data['periode_debut']) ? $this->dateEnFrancais($data['periode_debut']) : '';
-        $fin   = isset($data['periode_fin'])   ? $this->dateEnFrancais($data['periode_fin'])   : '';
+        // Période (déduite du détail mensuel — voir normaliserDonnees)
         $pdf->Cell($labelW, $lineH, 'Période :', 0, 0, 'L');
-        $pdf->Cell($valW,   $lineH, 'Du ' . $debut . ' au ' . $fin, 0, 1, 'L');
+        $pdf->Cell($valW,   $lineH, 'Du ' . ($data['periode_debut_label'] ?? '') . ' au ' . ($data['periode_fin_label'] ?? ''), 0, 1, 'L');
         $pdf->SetX($startX);
 
         // Durée
-        $duree = ($data['duree_mois'] ?? 12) . ' mois';
+        $duree = ($data['duree_mois'] ?? 0) . ' mois';
         $pdf->Cell($labelW, $lineH, 'Durée :', 0, 0, 'L');
         $pdf->Cell($valW,   $lineH, $duree, 0, 1, 'L');
+
+        // Détail (conditionnel — si une description existe)
+        if (!empty($data['detail_description'])) {
+            $pdf->SetX($startX);
+            $pdf->Cell($labelW, $lineH, 'Détail :', 0, 0, 'L');
+            $pdf->Cell($valW,   $lineH, $data['detail_description'], 0, 1, 'L');
+        }
+
+        // Tarif (conditionnel — si un tarif unitaire a pu être calculé)
+        if (!empty($data['tarif_unitaire'])) {
+            $tarifStr = number_format($data['tarif_unitaire'], 2, '.', "'") . ' CHF';
+            if (!empty($data['tarif_abreviation'])) {
+                $tarifStr .= ' / ' . $data['tarif_abreviation'];
+            }
+            $pdf->SetX($startX);
+            $pdf->Cell($labelW, $lineH, 'Tarif :', 0, 0, 'L');
+            $pdf->Cell($valW,   $lineH, $tarifStr, 0, 1, 'L');
+        }
     }
 
     /**

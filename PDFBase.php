@@ -416,8 +416,17 @@ abstract class AbstractPDFGenerator implements PDFGeneratorInterface {
      * @param MyFPDI[] $pages       Tableau d'objets MyFPDI (un par page)
      * @param string   $fileName    Nom du fichier final (ex: "facture_001.pdf")
      */
-    protected function sauvegarderPages(array $pages, string $fileName): bool {
-        $tempDir   = factures_path('');
+    /**
+     * @param array  $pages
+     * @param string $fileName
+     * @param string|null $outputDir Dossier de sortie absolu. Si omis, retombe
+     *                    sur factures_path('') (comportement historique).
+     *                    Voir FPDILoyerConfirmationGenerator::genererPDF(),
+     *                    qui passe confirmations_path('') pour ranger les
+     *                    confirmations dans un dossier distinct des factures.
+     */
+    protected function sauvegarderPages(array $pages, string $fileName, ?string $outputDir = null): bool {
+        $tempDir   = $outputDir ?? factures_path('');
         $tempFiles = [];
 
         if (!is_writable($tempDir)) {
@@ -456,7 +465,7 @@ abstract class AbstractPDFGenerator implements PDFGeneratorInterface {
 
         if (empty($tempFiles)) return false;
 
-        $fullPath = factures_path($fileName);
+        $fullPath = $tempDir . '/' . $fileName;
 
         // ── Une seule page : copie directe ────────────────────────
         if (count($tempFiles) === 1) {

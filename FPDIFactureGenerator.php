@@ -758,7 +758,17 @@ class FPDIFactureGenerator extends AbstractPDFGenerator {
         $totalFormate = number_format($ligne['total_ligne'], 2, '.', "'");
         
         // Utiliser le code d'unité s'il est disponible, sinon utiliser le champ unite
-        $uniteAffichee = isset($ligne['unite_code']) ? $ligne['unite_code'] : $ligne['unite'];
+        // ✅ Sauf si l'unité autorise la saisie d'une durée (permet_multiplicateur)
+        // et qu'une durée a été saisie sur cette ligne : dans ce cas, afficher
+        // "durée + abréviation" (ex: "1:30 hr") à la place du nom de l'unité.
+        $permetMultiplicateur = !empty($ligne['permet_multiplicateur']);
+        $dureeLigne           = $ligne['duree'] ?? null;
+        if ($permetMultiplicateur && !empty($dureeLigne)) {
+            $abrevUnite    = $ligne['abreviation_unite'] ?? ($ligne['unite_code'] ?? $ligne['unite'] ?? '');
+            $uniteAffichee = trim($dureeLigne . ($abrevUnite ? ' ' . $abrevUnite : ''));
+        } else {
+            $uniteAffichee = isset($ligne['unite_code']) ? $ligne['unite_code'] : $ligne['unite'];
+        }
         
         // Stocker la position Y initiale
         $initialY = $startY;

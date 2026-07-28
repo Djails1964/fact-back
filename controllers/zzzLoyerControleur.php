@@ -42,6 +42,13 @@ class LoyerControleur {
                 id_service,
                 id_facture,
                 facture_etat,
+                id_contrat_location,
+                id_salle,
+                nom_salle,
+                id_type_contrat,
+                nom_type_contrat,
+                est_forfait,
+                categorie_motifs_contrat,
                 description,
                 montant_total           AS loyer_montant_total,
                 montant_mensuel_moyen,
@@ -57,7 +64,8 @@ class LoyerControleur {
                 date_creation,
                 date_modification,
                 createur_id,
-                modificateur_id 
+                modificateur_id,
+                (SELECT s.nom FROM services s WHERE s.id = id_service LIMIT 1) AS nom_service
             FROM v_loyers_complets WHERE 1=1";
             $params = [];
             
@@ -123,6 +131,13 @@ class LoyerControleur {
                 id_service,
                 id_facture,
                 facture_etat,
+                id_contrat_location,
+                id_salle,
+                nom_salle,
+                id_type_contrat,
+                nom_type_contrat,
+                est_forfait,
+                categorie_motifs_contrat,
                 description,
                 montant_total           AS loyer_montant_total,
                 montant_mensuel_moyen,
@@ -162,6 +177,8 @@ class LoyerControleur {
                                 ld.description,
                                 ld.montant         AS loyer_detail_montant,
                                 ld.dates,
+                                ld.duree,
+                                ld.nb_seances,
                                 ld.est_paye,
                                 ld.date_paiement,
                                 ld.date_creation,
@@ -169,6 +186,7 @@ class LoyerControleur {
                                 u.nom              AS nom_unite,
                                 u.abreviation      AS abreviation_unite,
                                 u.code             AS code_unite,
+                                u.permet_multiplicateur,
                                 l.id_service       AS id_service,
                                 s.nom              AS nom_service
                             FROM loyer_detail ld
@@ -249,13 +267,17 @@ class LoyerControleur {
             $afficher_dates     = toTinyInt($data['afficher_dates_paiement'] ?? 0);
             $id_contrat_location = isset($data['id_contrat_location'])
                                   ? (int)$data['id_contrat_location'] : null;
+            $id_salle            = isset($data['id_salle']) && $data['id_salle'] !== null && $data['id_salle'] !== ''
+                                  ? (int)$data['id_salle'] : null;
+            $id_type_contrat     = isset($data['id_type_contrat']) && $data['id_type_contrat'] !== null && $data['id_type_contrat'] !== ''
+                                  ? (int)$data['id_type_contrat'] : null;
 
             $sql = "INSERT INTO loyer (
                         numero_loyer, numero_sequence, annee_loyer, id_client,
                         date_creation_loyer, periode_debut, periode_fin, duree_mois,
                         motif, id_service, afficher_dates_paiement, description,
-                        montant_total, statut, id_contrat_location, createur_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                        montant_total, statut, id_contrat_location, id_salle, id_type_contrat, createur_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
             $stmt = $conn->prepare($sql);
             $success = $stmt->execute([
@@ -274,6 +296,8 @@ class LoyerControleur {
                 $data['loyer_montant_total'],
                 $data['loyer_statut'] ?? 'actif',
                 $id_contrat_location,
+                $id_salle,
+                $id_type_contrat,
                 $data['createur_id'] ?? null
             ]);
             
@@ -311,6 +335,25 @@ class LoyerControleur {
      */
     public static function modifierLoyer($conn, $id_loyer, $data) {
         try {
+            // ✅ Bloquer la modification manuelle si ce loyer a été généré
+            // depuis une location de salle — SAUF si l'appel vient de la
+            // régénération elle-même (useGenererLoyer.js), via le flag
+            // depuis_location. Les modifications doivent se faire sur la
+            // location, puis le loyer est régénéré depuis celle-ci.
+            if (empty($data['depuis_location'])) {
+                $stmtContrat = $conn->prepare(
+                    "SELECT id_contrat_location FROM loyer WHERE id_loyer = ?"
+                );
+                $stmtContrat->execute([$id_loyer]);
+                $idContratLocation = $stmtContrat->fetchColumn();
+                if (!empty($idContratLocation)) {
+                    throw new Exception(
+                        "Ce loyer a été généré depuis une location de salle. " .
+                        "Modifiez la location correspondante, puis régénérez le loyer."
+                    );
+                }
+            }
+
             // ✅ Vérifier si ce loyer est lié à une facture
             $stmtCheck = $conn->prepare(
                 "SELECT l.id_facture, f.etat
@@ -330,9 +373,30 @@ class LoyerControleur {
                         "La modification n'est autorisée que si la facture est \"En attente\" ou \"Éditée\"."
                     );
                 }
+            } else {
+                // Pas de facture (ex. loyer au forfait) : la modification n'est
+                // autorisée que si aucun paiement n'a déjà été enregistré
+                // directement sur ce loyer.
+                $stmtPaiements = $conn->prepare(
+                    "SELECT COUNT(*) FROM paiement
+                     WHERE id_loyer = ? AND statut = 'confirme'"
+                );
+                $stmtPaiements->execute([$id_loyer]);
+                $nbPaiements = (int)$stmtPaiements->fetchColumn();
+
+                if ($nbPaiements > 0) {
+                    throw new Exception(
+                        "Ce loyer a des paiements enregistrés (sans facture associée). " .
+                        "La modification n'est pas autorisée tant que des paiements existent."
+                    );
+                }
             }
 
             $afficher_dates_upd = toTinyInt($data['afficher_dates_paiement'] ?? 0);
+            $id_salle_upd = isset($data['id_salle']) && $data['id_salle'] !== null && $data['id_salle'] !== ''
+                           ? (int)$data['id_salle'] : null;
+            $id_type_contrat_upd = isset($data['id_type_contrat']) && $data['id_type_contrat'] !== null && $data['id_type_contrat'] !== ''
+                                  ? (int)$data['id_type_contrat'] : null;
 
             $sql = "UPDATE loyer SET
                         periode_debut = ?,
@@ -340,6 +404,8 @@ class LoyerControleur {
                         duree_mois = ?,
                         motif = ?,
                         id_service = ?,
+                        id_salle = ?,
+                        id_type_contrat = ?,
                         afficher_dates_paiement = ?,
                         description = ?,
                         montant_total = ?,
@@ -355,6 +421,8 @@ class LoyerControleur {
                 $data['duree_mois'],
                 $data['motif'] ?? null,
                 isset($data['id_service']) ? (int)$data['id_service'] : null,
+                $id_salle_upd,
+                $id_type_contrat_upd,
                 $afficher_dates_upd,
                 $data['description'] ?? null,
                 $data['loyer_montant_total'],
@@ -425,6 +493,24 @@ class LoyerControleur {
                     throw new Exception(
                         "Ce loyer est lié à une facture en état \"$etatFacture\". " .
                         "La suppression n'est autorisée que si la facture est \"En attente\" ou \"Éditée\"."
+                    );
+                }
+            } else {
+                // ✅ Pas de facture (ex. loyer au forfait) : vérifier qu'aucun
+                // paiement n'a été saisi directement sur ce loyer avant de
+                // supprimer, plutôt que de laisser échouer sur la contrainte
+                // FK RESTRICT de la table paiement.
+                $stmtPaiements = $conn->prepare(
+                    "SELECT COUNT(*) FROM paiement
+                     WHERE id_loyer = ? AND statut = 'confirme'"
+                );
+                $stmtPaiements->execute([$id_loyer]);
+                $nbPaiements = (int)$stmtPaiements->fetchColumn();
+
+                if ($nbPaiements > 0) {
+                    throw new Exception(
+                        "Ce loyer a des paiements enregistrés (sans facture associée). " .
+                        "La suppression n'est pas autorisée tant que des paiements existent."
                     );
                 }
             }
@@ -511,8 +597,8 @@ class LoyerControleur {
             error_log("LoyerControleur::ajouterMontantsMensuels - ID loyer: $id_loyer, montants: " . json_encode($montantsMensuels));
             $sql = "INSERT INTO loyer_detail (
                         id_loyer, id_unite, mois, numero_mois, annee,
-                        quantite, description, montant, dates, est_paye, date_paiement
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                        quantite, description, montant, dates, duree, nb_seances, est_paye, date_paiement
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             
             $stmt = $conn->prepare($sql);
             
@@ -529,6 +615,8 @@ class LoyerControleur {
                     isset($detail['dates']) && is_array($detail['dates'])
                         ? json_encode($detail['dates'])
                         : ($detail['dates'] ?? null),
+                    $detail['duree'] ?? null,
+                    isset($detail['nb_seances']) ? (int)$detail['nb_seances'] : null,
                     toTinyInt($detail['est_paye'] ?? false),
                     $detail['date_paiement'] ?? null
                 ]);
@@ -548,36 +636,43 @@ class LoyerControleur {
     private static function mettreAJourMontantsMensuels($conn, $id_loyer, $montantsMensuels) {
         try {
             $sqlParId = "UPDATE loyer_detail
-                         SET montant = ?, est_paye = ?, date_paiement = ?
+                         SET montant = ?, est_paye = ?, date_paiement = ?,
+                             quantite = ?, duree = ?, nb_seances = ?, description = ?
                          WHERE id = ? AND id_loyer = ?";
 
             $sqlFallback = "UPDATE loyer_detail
-                            SET montant = ?, est_paye = ?, date_paiement = ?
+                            SET montant = ?, est_paye = ?, date_paiement = ?,
+                                quantite = ?, duree = ?, nb_seances = ?, description = ?
                             WHERE id_loyer = ? AND numero_mois = ? AND annee = ? AND id_unite = ?";
 
             $stmtId       = $conn->prepare($sqlParId);
             $stmtFallback = $conn->prepare($sqlFallback);
 
             foreach ($montantsMensuels as $detail) {
-                $montant        = $detail['loyer_detail_montant'] ?? 0;
-                $estPaye        = toTinyInt($detail['est_paye'] ?? false);
-                $datePaiement   = $detail['date_paiement'] ?? null;
-                $idLoyerDetail  = isset($detail['id_loyer_detail']) && $detail['id_loyer_detail'] !== null
-                                  ? (int)$detail['id_loyer_detail'] : null;
+                $montant       = $detail['loyer_detail_montant'] ?? 0;
+                $estPaye       = toTinyInt($detail['est_paye'] ?? false);
+                $datePaiement  = $detail['date_paiement'] ?? null;
+                $quantite      = isset($detail['quantite']) ? (float)$detail['quantite'] : null;
+                $duree         = $detail['duree'] ?? null;
+                $nbSeances     = isset($detail['nb_seances']) ? (int)$detail['nb_seances'] : null;
+                $description   = $detail['description'] ?? null;
+                $idLoyerDetail = isset($detail['id_loyer_detail']) && $detail['id_loyer_detail'] !== null
+                                 ? (int)$detail['id_loyer_detail'] : null;
 
                 if ($idLoyerDetail !== null) {
-                    $stmtId->execute([$montant, $estPaye, $datePaiement, $idLoyerDetail, $id_loyer]);
+                    $stmtId->execute([$montant, $estPaye, $datePaiement,
+                                      $quantite, $duree, $nbSeances, $description,
+                                      $idLoyerDetail, $id_loyer]);
                 } else {
-                    // Fallback : UPDATE via clé composite
                     $numeroMois = $detail['loyer_numero_mois'];
                     $annee      = $detail['loyer_annee'] ?? date('Y');
                     $idUnite    = isset($detail['id_unite']) && $detail['id_unite'] !== null
                                   ? (int)$detail['id_unite'] : null;
                     if ($idUnite !== null) {
                         $stmtFallback->execute([$montant, $estPaye, $datePaiement,
+                                                $quantite, $duree, $nbSeances, $description,
                                                 $id_loyer, $numeroMois, $annee, $idUnite]);
                     }
-                    // Si id_unite null ET pas d'id_loyer_detail → on ne peut pas mettre à jour sans risque
                 }
             }
         } catch (PDOException $e) {

@@ -80,9 +80,14 @@ try {
     }
 
 } catch (Exception $e) {
-    error_log("location-salle-api - Erreur : " . $e->getMessage());
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    $msg  = $e->getMessage();
+    $code = str_contains($msg, 'introuvable') ? 404
+          : (str_contains($msg, 'obligatoire') ? 422
+          : (str_contains($msg, 'Droits')      ? 403
+          : 200)); // ← 200 avec success:false pour que React puisse lire le message
+    error_log("location-salle-api - Erreur : {$msg}");
+    http_response_code($code);
+    echo json_encode(['success' => false, 'message' => $msg]);
 }
 
 $output = ob_get_clean();
@@ -93,6 +98,16 @@ echo $output;
 function handleGet(ServiceLocationSalle $service): void
 {
     $action = $_GET['action'] ?? null;
+
+    // Types de contrat disponibles
+    if ($action === 'types_contrat') {
+        $types = $service->listerTypesContrat();
+        if (is_dev_mode()) {
+            error_log('location-salle-api [GET types_contrat] → ' . count($types) . ' type(s)');
+        }
+        echo json_encode(['success' => true, 'types_contrat' => $types]);
+        return;
+    }
 
     // Salles disponibles (paramètres)
     if ($action === 'salles') {
@@ -135,17 +150,32 @@ function handlePost(ServiceLocationSalle $service): void
 
     $action = $_GET['action'] ?? null;
 
-    // Ajout d'un client au tableau (contrat)
+    // Ajout d'un contrat (client + salle + type de contrat)
     if ($action === 'contrat') {
         if (empty($data['id_client']) || empty($data['annee'])) {
             http_response_code(400);
             echo json_encode(['success' => false, 'message' => 'id_client et annee sont requis']);
             return;
         }
-        if (is_dev_mode()) {
-            error_log('location-salle-api [POST contrat] id_client=' . $data['id_client'] . ' annee=' . $data['annee']);
+        if (empty($data['id_salle']) || empty($data['id_type_contrat'])) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'message' => 'id_salle et id_type_contrat sont requis']);
+            return;
         }
-        $resultat = $service->creerContrat((int) $data['id_client'], (int) $data['annee']);
+        $idSalle       = (int) $data['id_salle'];
+        $idTypeContrat = (int) $data['id_type_contrat'];
+        if (is_dev_mode()) {
+            error_log('location-salle-api [POST contrat] id_client=' . $data['id_client']
+                . ' annee=' . $data['annee']
+                . ' id_salle=' . $idSalle
+                . ' id_type_contrat=' . $idTypeContrat);
+        }
+        $resultat = $service->creerContrat(
+            (int) $data['id_client'],
+            (int) $data['annee'],
+            $idSalle,
+            $idTypeContrat
+        );
         if (is_dev_mode()) {
             error_log('location-salle-api [POST contrat] résultat : ' . json_encode($resultat, JSON_UNESCAPED_UNICODE));
         }

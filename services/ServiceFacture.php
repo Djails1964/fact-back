@@ -38,6 +38,12 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function creerFacture($data) {
+        // ✅ Confirmation de paiement (contrat au forfait) : détails
+        // mensuels fournis au lieu de lignes — déléguer au flux dédié.
+        if (!empty($data['details_mensuels'])) {
+            return $this->creerFactureConfirmation($data);
+        }
+
         $user = $this->getCurrentUser();
         
         try {
@@ -52,9 +58,11 @@ class ServiceFacture {
             // ✅ Allouer le numéro de facture atomiquement (SELECT FOR UPDATE + UPDATE)
             //    L'année est déduite de date_facture — indépendamment de l'année du loyer.
             //    Le frontend ne fournit plus numero_facture ; on l'ignore s'il est présent.
+            //    Séquence 'Prochain Numéro Facture' (estConfirmation=false) — distincte
+            //    de celle des confirmations, voir creerFactureConfirmation() ci-dessous.
             unset($data['numero_facture']);
             $anneeFacture = (int) date('Y', strtotime($data['date_facture']));
-            $numeroFacture = FactureControleur::allouerNumeroFacture($this->conn, $anneeFacture);
+            $numeroFacture = FactureControleur::allouerNumeroFacture($this->conn, $anneeFacture, false);
             $data['numero_facture'] = $numeroFacture;
 
             if (is_dev_mode()) {
@@ -135,6 +143,12 @@ class ServiceFacture {
      * @return array Résultat de l'opération
      */
     public function modifierFacture($id_facture, $data) {
+        // ✅ Confirmation de paiement (contrat au forfait) : détails
+        // mensuels fournis au lieu de lignes — déléguer au flux dédié.
+        if (!empty($data['details_mensuels'])) {
+            return $this->modifierFactureConfirmation($id_facture, $data);
+        }
+
         $user = $this->getCurrentUser();
         
         try {
@@ -418,6 +432,10 @@ class ServiceFacture {
                         if (isset($ligne['id_unite']) && isset($unites[$ligne['id_unite']])) {
                             // Ajouter les informations de l'unité à la ligne de facture
                             $facture['lignes'][$key]['unite'] = $unites[$ligne['id_unite']]['code_unite'];
+                            // ✅ Nécessaire pour afficher "durée + abréviation" à l'impression
+                            // quand l'unité autorise la saisie d'une durée hh:mm (ex: Heure)
+                            $facture['lignes'][$key]['permet_multiplicateur'] = $unites[$ligne['id_unite']]['permet_multiplicateur'] ?? 0;
+                            $facture['lignes'][$key]['abreviation_unite']    = $unites[$ligne['id_unite']]['abreviation_unite'] ?? null;
                         }
                     }
                 }
@@ -517,15 +535,21 @@ class ServiceFacture {
             $includeAnnexes = isset($options['includeAnnexes']) ? (bool)$options['includeAnnexes'] : true;
             $copies = isset($options['copies']) ? (int)$options['copies'] : 1;
             
+            // ✅ Confirmation (contrat au forfait) : dossier de sortie et
+            // préfixe de nom de fichier dédiés, distincts des factures
+            // standard — voir helpers.php::confirmations_path().
+            $estConfirmation = !empty($facture['est_forfait']);
+
             // Récupérer le paramètre outputDir depuis les options ou les paramètres système
             $outputDir = isset($options['outputDir']) ? $options['outputDir'] : null;
 
             // Si le paramètre outputDir n'est pas spécifié dans les options, utiliser la valeur par défaut           
             if (!$outputDir) {
                 // Utiliser le nouveau système de paramètres avec groupe
-                // $outputDir = $this->serviceParametre->getParametre('outputDir', 'Facture')['parametre']['valeur_parametre'] ?? 'storage/invoices';
                 error_log("Récupération du dossier de sortie pour le PDF via le service Parametre");
-                $outputDir = factures_path(null, $this->serviceParametre);
+                $outputDir = $estConfirmation
+                    ? confirmations_path(null, $this->serviceParametre)
+                    : factures_path(null, $this->serviceParametre);
             }
             error_log("Dossier de sortie pour le PDF: $outputDir");
             
@@ -537,17 +561,20 @@ class ServiceFacture {
             }
             
             // Créer le nom du fichier PDF
-            // ✅ Utilisation de la fonction globale
+            // ✅ Préfixe distinct selon le type de document.
             $prenomSafe = normalizeForFilename($facture['prenom']);
             $nomSafe = normalizeForFilename($facture['nom']);
-            $pdfFilename = 'facture_' . $facture['numero_facture'] . '_' . $prenomSafe . '_' . $nomSafe . '_' . date('Ymd_His') . '.pdf';
+            $prefixeFichier = $estConfirmation ? 'ConfirmationPaiement_' : 'Facture_';
+            $pdfFilename = $prefixeFichier . $facture['numero_facture'] . '_' . $prenomSafe . '_' . $nomSafe . '_' . date('Ymd_His') . '.pdf';
             $pdfPath = $outputDir . '/' . $pdfFilename;
             
             // Utiliser le générateur de PDF
             // require_once 'PDFGeneratorFactory.php';
         
             // Récupérer le type de générateur depuis la configuration ou un paramètre
-            $pdfEngine = 'fpdi'; // ou 'tcpdf', selon votre préférence ou configuration
+            // ✅ Une confirmation (contrat au forfait) utilise un générateur dédié
+            // (tableau mensuel), une facture standard utilise le générateur habituel.
+            $pdfEngine = $estConfirmation ? 'fpdi_loyer' : 'fpdi';
         
             // Debugging information
             
@@ -562,7 +589,11 @@ class ServiceFacture {
                 
                 // Utiliser le générateur
                 error_log("Génération du PDF pour la facture ID: $id_facture");
-                $result = $pdfGenerator->genererPDF($facture, $pdfFilename, null, $relationsBancaires, $delaiPaiement, $signature, $printRistourne);
+                // ✅ $outputDir déjà calculé plus haut (bon dossier selon le
+                // type de document) — transmis au générateur au lieu de null,
+                // pour que FPDILoyerConfirmationGenerator::genererPDF() sache
+                // où sauvegarder réellement le fichier.
+                $result = $pdfGenerator->genererPDF($facture, $pdfFilename, $outputDir, $relationsBancaires, $delaiPaiement, $signature, $printRistourne);
                 error_log("Résultat de la génération du PDF: " . json_encode($result));
                 if (!$result) {
                     throw new Exception('Erreur lors de la génération du PDF');
@@ -586,8 +617,10 @@ class ServiceFacture {
                 throw new Exception('Erreur lors de la mise à jour des informations d\'édition');
             }
 
-            // Construire l'URL du PDF
-            $pdfUrl = factures_url($pdfFilename, $this->serviceParametre);
+            // Construire l'URL du PDF (bon dossier selon le type de document)
+            $pdfUrl = $estConfirmation
+                ? confirmations_url($pdfFilename, $this->serviceParametre)
+                : factures_url($pdfFilename, $this->serviceParametre);
 
             // ✅ LOGGING: Impression de facture
             $this->logger->log([
@@ -712,9 +745,16 @@ class ServiceFacture {
             $pdfAttached = false;
             
             if (!empty($factureDetails['factfilename'])) {
-                // Récupérer le répertoire de sortie des factures
-                $outputDirResult = $this->serviceParametre->getParametre('OutputDir', 'Facture', 'Chemin');
-                $outputDir = $outputDirResult['success'] ? $outputDirResult['parametre']['valeur_parametre'] : 'storage/factures';
+                // ✅ Récupérer le répertoire de sortie adapté au type de document
+                // (confirmation vs facture standard) — même distinction que pour
+                // la génération du PDF, voir imprimerFacture() ci-dessus.
+                $estConfirmationEmail = !empty($factureDetails['est_forfait']);
+                $outputDirResult = $estConfirmationEmail
+                    ? $this->serviceParametre->getParametre('OutputDirConfirmation', 'Facture', 'Chemin')
+                    : $this->serviceParametre->getParametre('OutputDir', 'Facture', 'Chemin');
+                $outputDir = $outputDirResult['success']
+                    ? $outputDirResult['parametre']['valeur_parametre']
+                    : ($estConfirmationEmail ? 'storage/confirmations' : 'storage/factures');
                 
                 // Construire le chemin complet (solution qui fonctionne)
                 $pdfPath = realpath(APP_ROOT . '/' . $outputDir . '/' . $factureDetails['factfilename']);
@@ -1208,6 +1248,155 @@ class ServiceFacture {
             return [
                 'success' => false,
                 'message' => 'Erreur lors de la récupération des paramètres: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * ✅ Création d'une confirmation de paiement (contrat au forfait),
+     * avec son détail mensuel figé (facture_detail_mensuel). Miroir de
+     * creerFacture() mais pour ce type de document — appelée via
+     * creerFacture() quand $data['details_mensuels'] est fourni.
+     *
+     * @param array $data
+     * @return array
+     */
+    private function creerFactureConfirmation($data) {
+        $user = $this->getCurrentUser();
+
+        try {
+            $this->conn->beginTransaction();
+
+            // ✅ Allouer le numéro de confirmation atomiquement, séquence
+            // dédiée ('Prochain Numéro Confirmation') — indépendante de
+            // celle des factures standard (estConfirmation=true).
+            unset($data['numero_facture']);
+            $anneeFacture  = (int) date('Y', strtotime($data['date_facture']));
+            $numeroFacture = FactureControleur::allouerNumeroFacture($this->conn, $anneeFacture, true);
+            $data['numero_facture'] = $numeroFacture;
+
+            $resultat = FactureControleur::ajouterFactureAvecDetailMensuel($this->conn, $data);
+
+            if (!$resultat['success']) {
+                throw new Exception($resultat['message']);
+            }
+
+            $this->logger->log([
+                'user_id'     => $user['id'],
+                'user_name'   => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_FACTURE_CREATE,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id'   => $resultat['id_facture'],
+                'description' => "Création de la confirmation de paiement #{$resultat['id_facture']} pour le client {$data['client_nom']}",
+                'details'     => [
+                    'id_facture'     => $resultat['id_facture'],
+                    'numero_facture' => $resultat['numeroFacture'],
+                    'id_client'      => $data['id_client']      ?? null,
+                    'client_nom'     => $data['client_nom']     ?? null,
+                    'montant_brut'   => $data['montant_brut']   ?? null,
+                    'date_facture'   => $data['date_facture']   ?? null,
+                    'nb_mois'        => isset($data['details_mensuels']) ? count($data['details_mensuels']) : 0,
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_INFO,
+            ]);
+
+            if ($this->conn->inTransaction()) {
+                $this->conn->commit();
+            }
+
+            return $resultat;
+
+        } catch (Exception $e) {
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
+            $this->logger->log([
+                'user_id'     => $user['id'],
+                'user_name'   => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'description' => "Échec de création d'une confirmation de paiement",
+                'details'     => [
+                    'error_message' => $e->getMessage(),
+                    'id_client'     => $data['id_client'] ?? null,
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR,
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la création de la confirmation de paiement: ' . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * ✅ Modification d'une confirmation de paiement existante (remplace
+     * son détail mensuel). Miroir de modifierFacture() — appelée via
+     * modifierFacture() quand $data['details_mensuels'] est fourni.
+     *
+     * @param int   $id_facture
+     * @param array $data
+     * @return array
+     */
+    private function modifierFactureConfirmation($id_facture, $data) {
+        $user = $this->getCurrentUser();
+
+        try {
+            $factureActuelle = FactureControleur::getFactureParId($this->conn, $id_facture);
+
+            $this->conn->beginTransaction();
+
+            $resultat = FactureControleur::modifierFactureAvecDetailMensuel($this->conn, $id_facture, $data);
+
+            if (!$resultat['success']) {
+                throw new Exception($resultat['message']);
+            }
+
+            $this->logger->log([
+                'user_id'     => $user['id'],
+                'user_name'   => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_FACTURE_UPDATE,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id'   => $id_facture,
+                'description' => "Mise à jour de la confirmation de paiement #{$factureActuelle['numero_facture']} ({$factureActuelle['prenom']} {$factureActuelle['nom']})",
+                'details'     => [
+                    'id_facture'     => $id_facture,
+                    'numero_facture' => $factureActuelle['numero_facture'],
+                    'client_nom'     => "{$factureActuelle['prenom']} {$factureActuelle['nom']}",
+                    'nb_mois'        => isset($data['details_mensuels']) ? count($data['details_mensuels']) : 0,
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_INFO,
+            ]);
+
+            if ($this->conn->inTransaction()) {
+                $this->conn->commit();
+            }
+
+            return $resultat;
+
+        } catch (Exception $e) {
+            if ($this->conn->inTransaction()) {
+                $this->conn->rollBack();
+            }
+
+            $this->logger->log([
+                'user_id'     => $user['id'],
+                'user_name'   => $user['name'],
+                'action_type' => ActivityLogsConstants::ACTION_SYSTEM_ERROR,
+                'entity_type' => ActivityLogsConstants::ENTITY_FACTURE,
+                'entity_id'   => $id_facture,
+                'description' => "Échec de mise à jour de la confirmation de paiement ID {$id_facture}",
+                'details'     => [
+                    'error_message' => $e->getMessage(),
+                ],
+                'severity' => ActivityLogsConstants::SEVERITY_ERROR,
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Erreur lors de la mise à jour de la confirmation de paiement: ' . $e->getMessage(),
             ];
         }
     }

@@ -32,7 +32,7 @@ INSERT INTO parametres (nom_parametre, valeur_parametre, groupe_parametre, sous_
 VALUES
   ('motifs',       'Location d''un cabinet|Location d''un cabinet de consultation|Sous-location cabinet',
                    'Loyer', 'Motifs', 'Cabinet'),
-  ('motif_defaut', 'Location d''un cabinet',
+  ('motifDefaut', 'Location d''un cabinet',
                    'Loyer', 'Motifs', 'Cabinet');
 
 -- ============================================================================
@@ -43,7 +43,7 @@ INSERT INTO parametres (nom_parametre, valeur_parametre, groupe_parametre, sous_
 VALUES
   ('motifs',       'Location d''une salle|Location d''une salle de thérapie|Location d''une salle de formation',
                    'Loyer', 'Motifs', 'Salle'),
-  ('motif_defaut', 'Location d''une salle',
+  ('motifDefaut', 'Location d''une salle',
                    'Loyer', 'Motifs', 'Salle');
 
 -- ============================================================================

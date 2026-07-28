@@ -15,8 +15,7 @@ class SalleControleur
     {
         try {
             $sql = "
-                SELECT id, nom, id_service, type_client_requis, type_document, actif,
-                       created_at, updated_at
+                SELECT id, nom, id_service, actif, created_at, updated_at
                 FROM salle
             ";
             if ($actifSeulement) {
@@ -50,8 +49,7 @@ class SalleControleur
     {
         try {
             $stmt = $conn->prepare("
-                SELECT id, nom, id_service, type_client_requis, type_document, actif,
-                       created_at, updated_at
+                SELECT id, nom, id_service, actif, created_at, updated_at
                 FROM salle
                 WHERE id = ?
             ");
@@ -69,20 +67,25 @@ class SalleControleur
     }
 
     /**
-     * Retourne le type_document d'une salle depuis son id_service.
+     * Retourne le booléen est_forfait depuis le type de contrat lié à un id_service.
+     * Recherche via location_salle_contrat → type_contrat_location.
      * Utilisé par la génération de document depuis un loyer.
      */
     public static function getTypeDocumentByService(PDO $conn, int $idService): string
     {
         try {
             $stmt = $conn->prepare("
-                SELECT type_document FROM salle
-                WHERE id_service = ? AND actif = 1
+                SELECT tcl.est_forfait
+                FROM location_salle_contrat lsc
+                JOIN salle s ON s.id = lsc.id_salle AND s.id_service = ?
+                JOIN type_contrat_location tcl ON tcl.id = lsc.id_type_contrat
+                WHERE tcl.actif = 1
                 LIMIT 1
             ");
             $stmt->execute([$idService]);
-            $val = $stmt->fetchColumn();
-            return $val ?: 'facture';
+            $estForfait = $stmt->fetchColumn();
+            if ($estForfait === false) return 'facture';
+            return $estForfait ? 'confirmation' : 'facture';
 
         } catch (PDOException $e) {
             error_log("SalleControleur::getTypeDocumentByService - " . $e->getMessage());
@@ -94,7 +97,7 @@ class SalleControleur
 
     /**
      * Crée une nouvelle salle.
-     * @param array $data ['nom', 'id_service'?, 'type_client_requis'?, 'type_document'?]
+     * @param array $data ['nom', 'id_service'?]
      */
     public static function creer(PDO $conn, array $data): array
     {
@@ -102,17 +105,13 @@ class SalleControleur
             self::_valider($data, false);
 
             $stmt = $conn->prepare("
-                INSERT INTO salle (nom, id_service, type_client_requis, type_document)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO salle (nom, id_service)
+                VALUES (?, ?)
             ");
             $stmt->execute([
                 trim($data['nom']),
                 isset($data['id_service']) && $data['id_service'] !== '' && $data['id_service'] !== null
                     ? (int)$data['id_service'] : null,
-                isset($data['type_client_requis']) && $data['type_client_requis'] !== ''
-                    ? trim($data['type_client_requis']) : null,
-                in_array($data['type_document'] ?? '', ['facture', 'confirmation'], true)
-                    ? $data['type_document'] : 'facture',
             ]);
 
             return ['success' => true, 'id' => (int)$conn->lastInsertId()];
@@ -136,21 +135,15 @@ class SalleControleur
 
             $stmt = $conn->prepare("
                 UPDATE salle SET
-                    nom                = ?,
-                    id_service         = ?,
-                    type_client_requis = ?,
-                    type_document      = ?,
-                    actif              = ?
+                    nom        = ?,
+                    id_service = ?,
+                    actif      = ?
                 WHERE id = ?
             ");
             $stmt->execute([
                 trim($data['nom']),
                 isset($data['id_service']) && $data['id_service'] !== '' && $data['id_service'] !== null
                     ? (int)$data['id_service'] : null,
-                isset($data['type_client_requis']) && $data['type_client_requis'] !== ''
-                    ? trim($data['type_client_requis']) : null,
-                in_array($data['type_document'] ?? '', ['facture', 'confirmation'], true)
-                    ? $data['type_document'] : 'facture',
                 isset($data['actif']) ? (int)(bool)$data['actif'] : 1,
                 $id,
             ]);
@@ -195,6 +188,23 @@ class SalleControleur
         }
     }
 
+    /**
+     * Retourne le nom d'une salle par son id.
+     * Utilisé par les services pour les logs d'activité.
+     */
+    public static function getNomSalle(PDO $conn, int $id): ?string
+    {
+        try {
+            $stmt = $conn->prepare("SELECT nom FROM salle WHERE id = ? LIMIT 1");
+            $stmt->execute([$id]);
+            $val = $stmt->fetchColumn();
+            return $val ?: null;
+        } catch (PDOException $e) {
+            error_log("SalleControleur::getNomSalle - " . $e->getMessage());
+            return null;
+        }
+    }
+
     // ── Helpers privés ────────────────────────────────────────────────────────
 
     /**
@@ -205,7 +215,7 @@ class SalleControleur
     {
         if (!$idService) return null;
         try {
-            $stmt = $conn->prepare("SELECT nom_service FROM services WHERE id = ? LIMIT 1");
+            $stmt = $conn->prepare("SELECT nom AS nom_service FROM services WHERE id = ? LIMIT 1");
             $stmt->execute([$idService]);
             $row = $stmt->fetch(PDO::FETCH_ASSOC);
             return $row['nom_service'] ?? null;
@@ -222,10 +232,6 @@ class SalleControleur
         }
         if (isset($data['nom']) && strlen(trim($data['nom'])) === 0) {
             throw new Exception('Le nom de la salle ne peut pas être vide.');
-        }
-        if (isset($data['type_document'])
-            && !in_array($data['type_document'], ['facture', 'confirmation'], true)) {
-            throw new Exception('type_document doit être "facture" ou "confirmation".');
         }
     }
 }

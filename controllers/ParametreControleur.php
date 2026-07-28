@@ -339,8 +339,9 @@ class ParametreControleur {
             }
             
             // Validation spécifique pour certains paramètres
-            if ($data['nom_parametre'] === 'Prochain Numéro Facture' && !isset($data['annee_parametre'])) {
-                throw new Exception('L\'année est requise pour le paramètre Prochain Numéro Facture');
+            if (in_array($data['nom_parametre'], ['Prochain Numéro Facture', 'Prochain Numéro Confirmation'], true)
+                && !isset($data['annee_parametre'])) {
+                throw new Exception("L'année est requise pour le paramètre {$data['nom_parametre']}");
             }
             
             // Convertir et valider les entrées
@@ -420,8 +421,33 @@ class ParametreControleur {
                 $stmt = $conn->prepare($sql);
                 $stmt->execute([$nom_parametre, $valeur_parametre, $annee_parametre, $groupe_parametre, $sous_groupe_parametre, $categorie]);
             }
-            
-            
+
+            // ── Synchronisation vers la table salle ───────────────────────
+            // Certains paramètres de LocationSalle > Salles ont un équivalent
+            // dans la table salle et doivent être synchronisés.
+            if ($groupe_parametre === 'LocationSalle'
+                && $sous_groupe_parametre === 'Salles'
+                && $categorie !== null
+                && in_array($nom_parametre, ['type_document', 'facturation_utilisation'], true)
+            ) {
+                // Trouver la salle par son nom (= categorie dans parametres)
+                $salleStmt = $conn->prepare(
+                    "SELECT id FROM salle WHERE nom = ? LIMIT 1"
+                );
+                $salleStmt->execute([$categorie]);
+                $salle = $salleStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($salle) {
+                    if ($nom_parametre === 'type_document') {
+                        $conn->prepare("UPDATE salle SET type_document = ? WHERE id = ?")
+                             ->execute([$valeur_parametre, $salle['id']]);
+                    } elseif ($nom_parametre === 'facturation_utilisation') {
+                        $conn->prepare("UPDATE salle SET facturation_utilisation = ? WHERE id = ?")
+                             ->execute([(int)(bool)$valeur_parametre, $salle['id']]);
+                    }
+                }
+            }
+
             return [
                 'success' => true,
                 'message' => 'Paramètre enregistré avec succès'

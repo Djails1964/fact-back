@@ -211,7 +211,7 @@ try {
                 }
                 $resultat = $serviceTarif->getServicesUnites();
                 
-            } else if (isset($_GET['estTherapeute'])) {
+            } else if (isset($_GET['est_therapeute'])) {
                 if (!isset($_GET['id_client'])) {
                     throw new Exception('Paramètre id_client manquant');
                 }
@@ -220,7 +220,7 @@ try {
                 if (is_dev_mode()) {
                     error_log("📥 tarif-api - Check thérapeute pour client: $id_client");
                 }
-                $resultat = $serviceTarif->estTherapeute($id_client);
+                $resultat = $serviceTarif->est_therapeute($id_client);
                 
             } else if (isset($_GET['possedeTarifSpecial'])) {
                 if (!isset($_GET['id_client'])) {

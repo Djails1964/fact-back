@@ -67,8 +67,9 @@ class ServiceSalle
     }
 
     /**
-     * Retourne le type_document d'une salle à partir de l'id_service du loyer.
-     * Appelé par salle-api.php?type_document=1&id_service=X
+     * Retourne le type de document (facture/confirmation) depuis est_forfait
+     * du type de contrat lié à un id_service.
+     * Appelé par salle-api.php?type_document=1&id_service=X (paramètre GET conservé pour compatibilité)
      * Utilisé par LoyerGestion pour router vers facture ou confirmation PDF.
      */
     public function getTypeDocumentByService(int $idService): string
@@ -87,7 +88,7 @@ class ServiceSalle
      * Crée une nouvelle salle.
      * Transaction + log d'activité.
      *
-     * @param array $data ['nom', 'id_service'?, 'type_client_requis'?, 'type_document'?]
+     * @param array $data ['nom', 'id_service'?]
      * @return array ['success' => true, 'id' => int, 'message' => string]
      */
     public function creer(array $data): array
@@ -107,10 +108,8 @@ class ServiceSalle
                 'entity_id'   => $resultat['id'],
                 'description' => "Création de la salle \"{$data['nom']}\"",
                 'details'     => [
-                    'nom'               => $data['nom'],
-                    'id_service'        => $data['id_service']        ?? null,
-                    'type_client_requis'=> $data['type_client_requis'] ?? null,
-                    'type_document'     => $data['type_document']      ?? 'facture',
+                    'nom'        => $data['nom'],
+                    'id_service' => $data['id_service'] ?? null,
                 ],
                 'severity'    => 'info',
             ]);
@@ -135,7 +134,7 @@ class ServiceSalle
      * Transaction + log d'activité avec snapshot avant/après.
      *
      * @param int   $id
-     * @param array $data ['nom', 'id_service'?, 'type_client_requis'?, 'type_document'?, 'actif'?]
+     * @param array $data ['nom', 'id_service'?, 'type_client_requis'?, 'actif'?]
      * @return array ['success' => true, 'modifie' => bool, 'message' => string]
      */
     public function modifier(int $id, array $data): array
@@ -163,18 +162,14 @@ class ServiceSalle
                     'description' => "Modification de la salle \"{$avant['nom']}\"",
                     'details'     => [
                         'avant' => [
-                            'nom'               => $avant['nom'],
-                            'id_service'        => $avant['id_service'],
-                            'type_client_requis'=> $avant['type_client_requis'],
-                            'type_document'     => $avant['type_document'],
-                            'actif'             => $avant['actif'],
+                            'nom'        => $avant['nom'],
+                            'id_service' => $avant['id_service'],
+                            'actif'      => $avant['actif'],
                         ],
                         'apres' => [
-                            'nom'               => $data['nom']               ?? $avant['nom'],
-                            'id_service'        => $data['id_service']        ?? $avant['id_service'],
-                            'type_client_requis'=> $data['type_client_requis'] ?? $avant['type_client_requis'],
-                            'type_document'     => $data['type_document']      ?? $avant['type_document'],
-                            'actif'             => $data['actif']              ?? $avant['actif'],
+                            'nom'        => $data['nom']        ?? $avant['nom'],
+                            'id_service' => $data['id_service'] ?? $avant['id_service'],
+                            'actif'      => $data['actif']      ?? $avant['actif'],
                         ],
                     ],
                     'severity' => 'info',
@@ -227,10 +222,8 @@ class ServiceSalle
                 'entity_id'   => $id,
                 'description' => "Suppression de la salle \"{$salle['nom']}\"",
                 'details'     => [
-                    'nom'               => $salle['nom'],
-                    'id_service'        => $salle['id_service'],
-                    'type_client_requis'=> $salle['type_client_requis'],
-                    'type_document'     => $salle['type_document'],
+                    'nom'        => $salle['nom'],
+                    'id_service' => $salle['id_service'],
                 ],
                 'severity' => 'warning',
             ]);

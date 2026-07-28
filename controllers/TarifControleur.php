@@ -600,9 +600,9 @@ class TarifControleur {
         }
         
         // 2. Déterminer le type de client et chercher un tarif standard
-        $estTherapeute = $this->isClientTherapeute($id_client);
-        $code_type_tarif = $estTherapeute ? 'therapeute' : 'normal';
-        error_log("Client ID: $id_client isTherapeute: " . ($estTherapeute ? 'yes' : 'no') . ", searching for type: $code_type_tarif");
+        $est_therapeute = $this->isClientTherapeute($id_client);
+        $code_type_tarif = $est_therapeute ? 'therapeute' : 'normal';
+        error_log("Client ID: $id_client isTherapeute: " . ($est_therapeute ? 'yes' : 'no') . ", searching for type: $code_type_tarif");
 
         $tarifStandard = $this->findTarifStandardForClient($id_service, $id_unite, $code_type_tarif, $date);
 
@@ -621,9 +621,9 @@ class TarifControleur {
     }
     
     public function isClientTherapeute(int $id_client): bool {
-        $sql = "SELECT estTherapeute FROM client WHERE id = ?";
+        $sql = "SELECT est_therapeute FROM client WHERE id = ?";
         $result = $this->fetchOne($sql, [$id_client]);
-        return (bool)($result['estTherapeute'] ?? false);
+        return (bool)($result['est_therapeute'] ?? false);
     }
 
     public function clientPossedeTarifSpecial(int $id_client, ?string $date = null): bool {
@@ -641,8 +641,8 @@ class TarifControleur {
     public function getUnitesApplicablesPourClient(int $id_client, string $date): array {
         error_log("Fetching applicable units for client ID: $id_client on date: $date");
         // Déterminer si le client est thérapeute
-        $estTherapeute = $this->isClientTherapeute($id_client);
-        error_log("Client ID: $id_client isTherapeute: " . ($estTherapeute ? 'yes' : 'no'));
+        $est_therapeute = $this->isClientTherapeute($id_client);
+        error_log("Client ID: $id_client isTherapeute: " . ($est_therapeute ? 'yes' : 'no'));
         
         // ✅ CORRECTION PRINCIPALE: Requête avec logique de priorité correcte
         $sql = "
@@ -709,13 +709,13 @@ class TarifControleur {
         ";
         
         $params = [
-            $estTherapeute ? 1 : 0,  // Pour CASE 1
-            $estTherapeute ? 1 : 0,  // Pour CASE 2
+            $est_therapeute ? 1 : 0,  // Pour CASE 1
+            $est_therapeute ? 1 : 0,  // Pour CASE 2
             $id_client,               // Pour tarifs spéciaux
             $date, $date,           // Pour tarifs spéciaux
             $date, $date,           // Pour tarifs thérapeute
             $date, $date,           // Pour tarifs standard
-            $estTherapeute ? 1 : 0   // Pour WHERE final
+            $est_therapeute ? 1 : 0   // Pour WHERE final
         ];
         
         error_log("Executing corrected SQL for client units with priority logic");
